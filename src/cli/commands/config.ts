@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
-const CONFIG_DIR = join(homedir(), '.config', 'toki');
+const CONFIG_DIR = join(homedir(), '.config', 'cwim');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 const DEFAULT_CONFIG = {
@@ -63,7 +63,7 @@ export class ConfigCommand {
 
     if (value === undefined) {
       console.log(chalk.red(`  Key "${key}" not found in configuration`));
-      console.log(chalk.gray(`  Run 'toki config list' to see all keys`));
+      console.log(chalk.gray(`  Run 'cwim config list' to see all keys`));
       return;
     }
 
@@ -91,7 +91,7 @@ export class ConfigCommand {
     const config = this.ensureConfig();
 
     console.log('');
-    console.log(chalk.bold.cyan('  TOKI Configuration'));
+    console.log(chalk.bold.cyan('  CWIM Configuration'));
     console.log(`  ${chalk.gray(CONFIG_FILE)}`);
     console.log('');
 

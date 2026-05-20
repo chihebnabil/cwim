@@ -287,7 +287,7 @@ export class CheckCommand {
     if (!claudeMdExists) {
       recommendations.push('Create CLAUDE.md with project conventions and context');
     }
-    recommendations.push('Run `toki dashboard` for real-time monitoring during sessions');
+    recommendations.push('Run `cwim dashboard` for real-time monitoring during sessions');
 
     return {
       score,

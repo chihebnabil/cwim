@@ -169,7 +169,7 @@ async function run() {
   console.log('  \x1b[33m\u2022\x1b[0m Use /compact at ~65% to summarize conversation');
   console.log('  \x1b[33m\u2022\x1b[0m Use /clear when switching tasks');
   console.log('  \x1b[33m\u2022\x1b[0m Delegate to subagents for isolated work\n');
-  console.log(`  Run \x1b[36mtoki dashboard\x1b[0m for live monitoring during Claude Code sessions.\n`);
+  console.log(`  Run \x1b[36mcwim dashboard\x1b[0m for live monitoring during Claude Code sessions.\n`);
 }
 
 run().catch(console.error);

@@ -21,7 +21,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-
 const program = new Command();
 
 program
-  .name('toki')
+  .name('cwim')
   .description('Context Window Intelligence Manager - Real-time monitoring for Claude Code context')
   .version(pkg.version, '-v, --version', 'Display version number');
 

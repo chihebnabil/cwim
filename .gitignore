@@ -29,5 +29,5 @@ Thumbs.db
 # Test artifacts
 test-output/
 
-# TOKI local config (user-specific)
-.toki.json
+# CWIM local config (user-specific)
+.cwim.json

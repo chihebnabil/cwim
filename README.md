@@ -22,30 +22,30 @@ CWIM gives you:
 
 ```bash
 # Install globally
-npm install -g toki
+npm install -g @cwim/cli
 
 # Or run directly with npx
-npx toki dashboard
+npx @cwim/cli dashboard
 
-# Short command
-npx toki dashboard
+# Short command (after global install)
+cwim dashboard
 ```
 
 ## Commands
 
-### `toki dashboard` — Real-time Monitoring
+### `cwim dashboard` — Real-time Monitoring
 
 Launch a live-updating terminal dashboard:
 
 ```bash
 # Default monitoring
-toki dashboard
+cwim dashboard
 
 # Custom refresh rate
-toki dashboard --refresh 2000
+cwim dashboard --refresh 2000
 
 # Extended context window (1M tokens)
-toki dashboard --window 1000000 --model claude-opus-4.7
+cwim dashboard --window 1000000 --model claude-opus-4.7
 ```
 
 **Dashboard shows:**
@@ -58,68 +58,68 @@ toki dashboard --window 1000000 --model claude-opus-4.7
 - Breakdown by category (system, tools, MCPs, messages)
 - Optimization suggestions
 
-### `toki check` — Project Health Check
+### `cwim check` — Project Health Check
 
 Analyze your project's files and context efficiency:
 
 ```bash
 # Check current project
-toki check
+cwim check
 
 # Check specific project
-toki check --project ~/my-project
+cwim check --project ~/my-project
 
 # JSON output
-toki check --json
+cwim check --json
 ```
 
-### `toki status` — Quick Status
+### `cwim status` — Quick Status
 
 Show current context window status:
 
 ```bash
-toki status
+cwim status
 ```
 
-### `toki init` — Initialize Project
+### `cwim init` — Initialize Project
 
 Set up CWIM configuration in your project:
 
 ```bash
 # Initialize with defaults
-toki init
+cwim init
 
 # With specific plan and model
-toki init --plan max5 --model claude-opus-4-20250514
+cwim init --plan max5 --model claude-opus-4-20250514
 ```
 
 Creates:
 - `CLAUDE.md` — Project context file for Claude Code
-- `.toki.json` — Project-specific CWIM configuration
+- `.cwim.json` — Project-specific CWIM configuration
 
-### `toki estimate` — Token Estimation
+### `cwim estimate` — Token Estimation
 
 Estimate token counts for files before loading them:
 
 ```bash
-toki estimate src/auth.ts src/database.ts
-toki estimate docs/*.md
+cwim estimate src/auth.ts src/database.ts
+cwim estimate docs/*.md
 ```
 
-### `toki config` — Configuration
+### `cwim config` — Configuration
 
 ```bash
 # List all settings
-toki config list
+cwim config list
 
 # Get a setting
-toki config get thresholds.warning
+cwim config get thresholds.warning
 
 # Set a setting
-toki config set thresholds.danger 0.75
+cwim config set thresholds.danger 0.75
 
 # Reset to defaults
-toki config reset
+cwim config reset
 ```
 
 ## Programmatic API
@@ -127,7 +127,7 @@ toki config reset
 Use CWIM in your own tools:
 
 ```typescript
-import { ContextMonitor, TokenEstimator } from 'toki';
+import { ContextMonitor, TokenEstimator } from '@cwim/cli';
 
 // Create a monitor
 const monitor = new ContextMonitor({
@@ -216,7 +216,7 @@ monitor.stop();
 ### Token Estimation
 
 ```typescript
-import { TokenEstimator } from 'toki';
+import { TokenEstimator } from '@cwim/cli';
 
 // Quick estimate
 const tokens = TokenEstimator.quickEstimate('Hello world', 'prose');
@@ -241,7 +241,7 @@ import {
   findMemoryFiles,
   autoDetectContext,
   isClaudeCodeInstalled,
-} from 'toki';
+} from '@cwim/cli';
 
 // Parse /context command output
 const output = `
@@ -316,8 +316,8 @@ Each MCP server adds ~800-1200 tokens. Each memory file (CLAUDE.md) adds its con
 
 CWIM reads configuration from:
 
-1. `~/.config/toki/config.json` — Global user config
-2. `.toki.json` — Project-specific config (in current directory)
+1. `~/.config/cwim/config.json` — Global user config
+2. `.cwim.json` — Project-specific config (in current directory)
 3. CLI flags — Highest priority
 
 ### Default Config
