@@ -5,7 +5,7 @@ yarn.lock
 pnpm-lock.yaml
 
 # Build output (comment out for distribution)
-# dist/
+dist/
 *.tsbuildinfo
 
 # Coverage
@@ -29,5 +29,5 @@ Thumbs.db
 # Test artifacts
 test-output/
 
-# CWIM local config (user-specific)
-.cwim.json
+# TOKI local config (user-specific)
+.toki.json

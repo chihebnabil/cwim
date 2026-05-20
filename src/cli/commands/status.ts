@@ -109,8 +109,8 @@ export class StatusCommand {
 
     // Quick actions
     console.log(t.muted('  Quick Actions:'));
-    console.log(`    ${chalk.cyan('cwim dashboard')}  - Launch real-time monitor`);
-    console.log(`    ${chalk.cyan('cwim check')}      - Analyze project files`);
+    console.log(`    ${chalk.cyan('toki dashboard')}  - Launch real-time monitor`);
+    console.log(`    ${chalk.cyan('toki check')}      - Analyze project files`);
     console.log(`    ${chalk.cyan('/context')}        - In Claude Code: show breakdown`);
     console.log(`    ${chalk.cyan('/compact')}        - In Claude Code: summarize conversation`);
     console.log(`    ${chalk.cyan('/clear')}          - In Claude Code: reset context`);

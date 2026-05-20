@@ -59,7 +59,7 @@ export class InitCommand {
     const projectPath = resolve(options.projectPath);
 
     console.log('');
-    console.log(chalk.bold.cyan('  CWIM Project Initialization'));
+    console.log(chalk.bold.cyan('  TOKI Project Initialization'));
     console.log(`  ${chalk.gray(projectPath)}`);
     console.log('');
 
@@ -86,22 +86,22 @@ export class InitCommand {
       console.log(`  ${chalk.yellow('○')} ${chalk.cyan('CLAUDE.md')} already exists`);
     }
 
-    // Create cwim config
-    const cwimConfigPath = join(projectPath, '.cwim.json');
+    // Create toki config
+    const tokiConfigPath = join(projectPath, '.toki.json');
     const configContent = CWIM_CONFIG_TEMPLATE
       .replace('{MODEL}', model)
       .replace('{PLAN}', plan)
       .replace('{WINDOW_SIZE}', String(windowSize));
-    writeFileSync(cwimConfigPath, configContent);
-    console.log(`  ${chalk.green('✓')} Created ${chalk.cyan('.cwim.json')} (project config)`);
+    writeFileSync(tokiConfigPath, configContent);
+    console.log(`  ${chalk.green('✓')} Created ${chalk.cyan('.toki.json')} (project config)`);
 
     // Check for .gitignore
     const gitignorePath = join(projectPath, '.gitignore');
     if (existsSync(gitignorePath)) {
       const gitignore = readFileSync(gitignorePath, 'utf-8');
-      if (!gitignore.includes('.cwim.json')) {
-        writeFileSync(gitignorePath, gitignore + '\n# CWIM local config\n.cwim.json\n', { flag: 'a' });
-        console.log(`  ${chalk.green('✓')} Added ${chalk.cyan('.cwim.json')} to .gitignore`);
+      if (!gitignore.includes('.toki.json')) {
+        writeFileSync(gitignorePath, gitignore + '\n# TOKI local config\n.toki.json\n', { flag: 'a' });
+        console.log(`  ${chalk.green('✓')} Added ${chalk.cyan('.toki.json')} to .gitignore`);
       }
     }
 
@@ -116,8 +116,8 @@ export class InitCommand {
     // Next steps
     console.log(chalk.bold('  Next Steps:'));
     console.log(`    1. Edit ${chalk.cyan('CLAUDE.md')} with your project context`);
-    console.log(`    2. Run ${chalk.cyan('cwim dashboard')} to start monitoring`);
-    console.log(`    3. Run ${chalk.cyan('cwim check')} to analyze your project`);
+    console.log(`    2. Run ${chalk.cyan('toki dashboard')} to start monitoring`);
+    console.log(`    3. Run ${chalk.cyan('toki check')} to analyze your project`);
     console.log('');
 
     // Context budget info
