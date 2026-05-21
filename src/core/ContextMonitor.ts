@@ -36,9 +36,6 @@ const DEFAULT_THRESHOLDS = {
   critical: 0.90,
 };
 
-/** Known degradation onset threshold from research */
-const DEGRADATION_ONSET_THRESHOLD = 0.735; // ~147K/200K
-
 export class ContextMonitor extends EventEmitter {
   private config: CWIMConfig;
   private alertConfig: AlertConfig;
@@ -452,13 +449,13 @@ export class ContextMonitor extends EventEmitter {
   private calculateDegradationRisk(utilization: number): DegradationRisk {
     const thresholds = this.alertConfig.thresholds;
 
-    if (utilization >= thresholds.critical || utilization >= DEGRADATION_ONSET_THRESHOLD + 0.15) {
+    if (utilization >= thresholds.critical) {
       return DegradationRisk.CRITICAL;
     }
-    if (utilization >= thresholds.danger || utilization >= DEGRADATION_ONSET_THRESHOLD + 0.05) {
+    if (utilization >= thresholds.danger) {
       return DegradationRisk.HIGH;
     }
-    if (utilization >= thresholds.caution || utilization >= DEGRADATION_ONSET_THRESHOLD - 0.05) {
+    if (utilization >= thresholds.caution) {
       return DegradationRisk.MEDIUM;
     }
     if (utilization >= thresholds.warning) {

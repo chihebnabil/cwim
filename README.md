@@ -6,7 +6,7 @@
 
 When using Claude Code, your context window fills up silently. There's no progress bar, no warning bell—just gradual quality degradation until the model starts forgetting files, repeating itself, or producing contradictory code. By the time you notice, you've already lost 30+ minutes to degraded performance.
 
-Research shows degradation begins at **~73% utilization** (~147K/200K tokens), but most users don't realize until it's too late.
+Research shows context degradation can begin surprisingly early. Chroma's "Context Rot" study found significant degradation at just 25% utilization (~50K/200K tokens), and reasoning quality drops measurably as utilization grows. Stanford/Meta's "Lost in the Middle" paper shows that when relevant information sits in the middle of a long context, accuracy can drop 30% or more — meaning even at moderate utilization, the model may miss key details simply because of where they appear.
 
 ## The Solution
 
