@@ -65,10 +65,11 @@ program
 program
   .command('status')
   .description('Show current context window status')
+  .option('--recent <hours>', 'Show sessions from last N hours', '24')
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     const cmd = new StatusCommand();
-    await cmd.execute({ json: options.json, recentHours: 24 });
+    await cmd.execute({ json: options.json, recentHours: parseInt(options.recent, 10) });
   });
 
 // Config command - manage configuration

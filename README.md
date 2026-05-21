@@ -6,7 +6,9 @@
 
 When using Claude Code, your context window fills up silently. There's no progress bar, no warning bell—just gradual quality degradation until the model starts forgetting files, repeating itself, or producing contradictory code. By the time you notice, you've already lost 30+ minutes to degraded performance.
 
-Research shows context degradation can begin surprisingly early. Chroma's "Context Rot" study found significant degradation at just 25% utilization (~50K/200K tokens), and reasoning quality drops measurably as utilization grows. Stanford/Meta's "Lost in the Middle" paper shows that when relevant information sits in the middle of a long context, accuracy can drop 30% or more — meaning even at moderate utilization, the model may miss key details simply because of where they appear.
+Research shows context degradation can begin surprisingly early. Chroma's "Context Rot" study found significant degradation at just 25% utilization (~50K/200K tokens), with reasoning quality dropping measurably as utilization grows.
+
+Stanford/Meta's "Lost in the Middle" paper shows that when relevant information sits in the middle of a long context, accuracy can drop 30% or more — meaning even at moderate utilization, the model may miss key details simply because of where they appear.
 
 ## The Solution
 
@@ -220,7 +222,7 @@ For a standard 200K context window:
 | System prompt | ~2,600 | 1.3% |
 | System tools | ~17,600 | 8.8% |
 | Autocompact buffer | ~33,000 | 16.5% |
-| **Available for work** | **~146,800** | **73.4%** |
+| **Available after overhead** | **~146,800** | **73.4%** |
 
 Each MCP server adds ~800-1200 tokens. Each memory file (CLAUDE.md) adds its content size. The autocompact buffer is reserved for automatic compaction.
 
@@ -282,7 +284,7 @@ CWIM helps you implement these context management strategies:
 ## Requirements
 
 - Node.js 18+
-- Claude Code (optional, for integration features)
+- Claude Code (recommended for full session detection, but not required — dashboard works in fallback mode)
 
 ## Cross-Platform Support
 
