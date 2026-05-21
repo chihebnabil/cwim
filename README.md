@@ -12,11 +12,13 @@ Research shows degradation begins at **~73% utilization** (~147K/200K tokens), b
 
 CWIM gives you:
 
-- **Real-time dashboard** — Live context usage with a visual progress bar
+- **Real-time dashboard** — Live context usage with a visual progress bar, session info, and live indicators
+- **Multi-session support** — Interactive session picker when you have multiple Claude Code projects open
 - **Predictive alerts** — Warnings before you hit the ceiling, not after
 - **Smart suggestions** — Actionable tips like `/compact`, `/clear`, or subagent delegation
 - **File analysis** — Know which files cost the most tokens before loading them
 - **Health checks** — Audit your project's context efficiency
+- **Cross-platform** — Works on Windows, macOS, and Linux
 
 ## Quick Start
 
@@ -35,10 +37,10 @@ cwim dashboard
 
 ### `cwim dashboard` — Real-time Monitoring
 
-Launch a live-updating terminal dashboard:
+Launch a live-updating terminal dashboard that auto-detects your Claude Code sessions:
 
 ```bash
-# Default monitoring
+# Default monitoring (auto-detects session)
 cwim dashboard
 
 # Custom refresh rate
@@ -46,17 +48,35 @@ cwim dashboard --refresh 2000
 
 # Extended context window (1M tokens)
 cwim dashboard --window 1000000 --model claude-opus-4.7
+
+# Light theme
+cwim dashboard --theme light
 ```
 
-**Dashboard shows:**
-- Context utilization with a visual progress bar
-- Color-coded risk levels (green → yellow → red → critical)
-- Session stats (messages, file reads, tool calls)
-- Consumption rate and trend
-- Estimated turns remaining
-- Predictive warnings
-- Breakdown by category (system, tools, MCPs, messages)
-- Optimization suggestions
+**Dashboard features:**
+- **Session identity** — Project name, path, session ID, live/inactive indicator
+- **Session timing** — Duration, last activity timestamp
+- **Context utilization** — Visual progress bar with color-coded risk levels
+- **Stats** — Messages, file reads, tool calls, MCP servers, memory files
+- **Consumption rate** — Tokens per minute, per message, trend direction
+- **Predictions** — Minutes until critical/full with confidence score
+- **Breakdown** — By category (system, tools, MCPs, messages, free space)
+- **Suggestions** — Context-aware optimization tips
+- **Other sessions** — See your other active Claude Code sessions
+
+**Keyboard shortcuts:**
+- `s` — Switch to a different session
+- `r` — Force refresh session data
+- `q` — Quit dashboard
+- `Ctrl+C` — Quit dashboard
+
+**Session picker:**
+When multiple active sessions are found, CWIM shows an interactive list with:
+- Project name and path
+- Model, message count, utilization %
+- Risk level indicator
+- Last activity time
+- Auto-selects the most recent after 5 seconds
 
 ### `cwim check` — Project Health Check
 
@@ -75,10 +95,17 @@ cwim check --json
 
 ### `cwim status` — Quick Status
 
-Show current context window status:
+Show current context window status with session list:
 
 ```bash
+# Show all recent sessions
 cwim status
+
+# Show sessions from last 48 hours
+cwim status --recent 48
+
+# JSON output
+cwim status --json
 ```
 
 ### `cwim init` — Initialize Project
@@ -128,6 +155,8 @@ Use CWIM in your own tools:
 
 ```typescript
 import { ContextMonitor, TokenEstimator } from '@cwim/cli';
+import { homedir } from 'os';
+import { join } from 'path';
 
 // Create a monitor
 const monitor = new ContextMonitor({
@@ -160,7 +189,7 @@ const monitor = new ContextMonitor({
     theme: 'dark',
   },
   projectRoot: process.cwd(),
-  claudeCodePath: `${process.env.HOME}/.claude`,
+  claudeCodePath: join(homedir(), '.claude'),
   logLevel: 'info',
 });
 
@@ -176,6 +205,16 @@ monitor.on('alert', (alert) => {
 
 monitor.on('suggestion', (suggestion) => {
   console.log(`Suggestion: ${suggestion.title} - ${suggestion.description}`);
+});
+
+// Initialize from a Claude Code session (optional)
+monitor.initializeFromSession({
+  model: 'claude-sonnet-4-6',
+  estimatedUsedTokens: 45000,
+  messageCount: 12,
+  fileReads: 5,
+  toolCalls: 3,
+  windowSize: 1_000_000,
 });
 
 // Update from /context command output
@@ -241,6 +280,9 @@ import {
   findMemoryFiles,
   autoDetectContext,
   isClaudeCodeInstalled,
+  findRecentSessions,
+  selectSession,
+  reSyncSession,
 } from '@cwim/cli';
 
 // Parse /context command output
@@ -259,6 +301,24 @@ Estimated usage by category
 const parsed = parseContextOutput(output);
 console.log(parsed.model, parsed.usedTokens, parsed.totalWindow);
 
+// Find recent sessions
+const sessions = findRecentSessions(24); // Last 24 hours
+console.log(`${sessions.length} sessions found`);
+
+// Auto-select best session
+const session = selectSession({
+  recentHours: 24,
+  autoSelectIfSingle: true,
+  autoSelectCurrentDir: true,
+  preferRecent: true,
+});
+
+// Re-sync session data (for live updates)
+if (session) {
+  const refreshed = reSyncSession(session);
+  console.log(`Updated tokens: ${refreshed?.estimatedUsedTokens}`);
+}
+
 // Find MCP servers
 const servers = findMCPServers();
 console.log(`${servers.length} MCP servers configured`);
@@ -273,6 +333,14 @@ console.log(`Model: ${context.model}, Window: ${context.windowSize}`);
 ```
 
 ## How It Works
+
+### Session Detection
+
+CWIM reads Claude Code's local session files (`~/.claude/projects/`) to:
+- Auto-discover active sessions across all projects
+- Extract real token usage, message counts, and model info
+- Sync live data every 10 seconds while dashboard is running
+- Support both model naming formats (`claude-sonnet-4-6` and `claude-sonnet-4.6`)
 
 ### Token Estimation Engine
 
@@ -372,6 +440,13 @@ CWIM helps you implement these context management strategies:
 
 - Node.js 18+
 - Claude Code (optional, for integration features)
+
+## Cross-Platform Support
+
+CWIM works on Windows, macOS, and Linux:
+- Auto-detects home directory across all platforms
+- Handles path separators correctly
+- Reads Claude Code's session files regardless of OS
 
 ## License
 
