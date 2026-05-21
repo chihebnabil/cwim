@@ -3,6 +3,8 @@
  */
 
 import chalk from 'chalk';
+import { homedir } from 'os';
+import { join } from 'path';
 import { ContextMonitor } from '../../core/ContextMonitor.js';
 import { TokenEstimator } from '../../core/TokenEstimator.js';
 import {
@@ -11,12 +13,14 @@ import {
   type DashboardOptions,
   type ContextSnapshot,
   type CWIMConfig,
+  type ClaudeCodeSession,
 } from '../../types/index.js';
 import {
   findRecentSessions,
   selectSession,
   isClaudeCodeInstalled,
   autoDetectContext,
+  reSyncSession,
 } from '../../integrations/claude-code.js';
 
 interface DashboardCommandOptions {
@@ -32,6 +36,8 @@ export class DashboardCommand {
   private monitor: ContextMonitor | null = null;
   private isRunning = false;
   private refreshInterval: NodeJS.Timeout | null = null;
+  private sessionSyncInterval: NodeJS.Timeout | null = null;
+  private activeSession: ClaudeCodeSession | null = null;
 
   async execute(options: DashboardCommandOptions): Promise<void> {
     // Check if Claude Code is installed
@@ -52,19 +58,30 @@ export class DashboardCommand {
       preferRecent: true,
     });
 
+    let model: string;
+    let windowSize: number;
+    let projectPath: string;
+
     if (!session) {
+      // Fallback mode: run with manual defaults
       console.log(chalk.yellow('\n  No active Claude Code sessions found (last 24h).'));
-      console.log(chalk.gray('  Start a Claude Code session to monitor context usage.\n'));
-      return;
+      console.log(chalk.gray('  Running in fallback mode with manual defaults.\n'));
+
+      const detectedContext = autoDetectContext();
+      model = detectedContext.model || options.model;
+      windowSize = detectedContext.windowSize || options.windowSize;
+      projectPath = process.cwd();
+    } else {
+      this.activeSession = session;
+      // Auto-detect context if available
+      const detectedContext = autoDetectContext();
+      model = detectedContext.model || options.model;
+      windowSize = detectedContext.windowSize || options.windowSize;
+      projectPath = session.projectPath;
+
+      console.log(chalk.green(`  Found session: ${session.projectName}`));
+      console.log(chalk.gray(`  Model: ${model} | Window: ${TokenEstimator.formatTokens(windowSize)} tokens\n`));
     }
-
-    // Auto-detect context if available
-    const detectedContext = autoDetectContext();
-    const model = detectedContext.model || options.model;
-    const windowSize = detectedContext.windowSize || options.windowSize;
-
-    console.log(chalk.green(`  Found session: ${session.projectName}`));
-    console.log(chalk.gray(`  Model: ${model} | Window: ${TokenEstimator.formatTokens(windowSize)} tokens\n`));
 
     // Initialize monitor
     const config: CWIMConfig = {
@@ -97,12 +114,24 @@ export class DashboardCommand {
         showPredictions: true,
         theme: options.theme as DashboardTheme,
       },
-      projectRoot: session.projectPath,
-      claudeCodePath: `${process.env.HOME}/.claude`,
+      projectRoot: projectPath,
+      claudeCodePath: join(homedir(), '.claude'),
       logLevel: 'info' as any,
     };
 
     this.monitor = new ContextMonitor(config);
+
+    // Seed monitor with session data if available
+    if (session) {
+      this.monitor.initializeFromSession({
+        model: session.model,
+        estimatedUsedTokens: session.estimatedUsedTokens,
+        messageCount: session.messageCount,
+        fileReads: session.fileReads,
+        toolCalls: session.toolCalls,
+        windowSize: session.windowSize,
+      });
+    }
 
     // Set up event listeners
     this.monitor.on('snapshot', (snapshot) => {
@@ -120,6 +149,13 @@ export class DashboardCommand {
     // Start monitoring
     this.isRunning = true;
     this.monitor.start(options.refreshRateMs);
+
+    // Set up live session re-sync (every 10 seconds)
+    if (this.activeSession) {
+      this.sessionSyncInterval = setInterval(() => {
+        this.syncSessionData();
+      }, 10_000);
+    }
 
     // Initial render
     const initialSnapshot = this.monitor.getLatestSnapshot();
@@ -149,6 +185,32 @@ export class DashboardCommand {
     // Keep process alive
     console.log(chalk.gray(`\n  Press Ctrl+C to exit\n`));
     await new Promise(() => {}); // Keep running indefinitely
+  }
+
+  /** Re-sync session data from Claude Code files */
+  private syncSessionData(): void {
+    if (!this.activeSession || !this.monitor) return;
+
+    const refreshed = reSyncSession(this.activeSession);
+    if (!refreshed) return;
+
+    // Only update if data changed
+    if (
+      refreshed.estimatedUsedTokens !== this.activeSession.estimatedUsedTokens ||
+      refreshed.messageCount !== this.activeSession.messageCount ||
+      refreshed.fileReads !== this.activeSession.fileReads ||
+      refreshed.toolCalls !== this.activeSession.toolCalls
+    ) {
+      this.activeSession = refreshed;
+      this.monitor.updateManual(
+        refreshed.estimatedUsedTokens,
+        refreshed.messageCount,
+        refreshed.fileReads,
+        refreshed.toolCalls,
+        refreshed.mcpServers || 0,
+        refreshed.memoryFiles || 0
+      );
+    }
   }
 
   private renderDashboard(snapshot: ContextSnapshot, options: DashboardCommandOptions): void {
@@ -324,6 +386,10 @@ export class DashboardCommand {
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
+    }
+    if (this.sessionSyncInterval) {
+      clearInterval(this.sessionSyncInterval);
+      this.sessionSyncInterval = null;
     }
     if (this.monitor) {
       this.monitor.stop();

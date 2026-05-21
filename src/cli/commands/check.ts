@@ -4,7 +4,7 @@
 
 import chalk from 'chalk';
 import { readFileSync, existsSync, statSync } from 'fs';
-import { join, resolve } from 'path';
+import { join, resolve, sep } from 'path';
 import { homedir } from 'os';
 import { globbySync } from 'globby';
 import { TokenEstimator } from '../../core/TokenEstimator.js';
@@ -55,7 +55,7 @@ export class CheckCommand {
             .sort((a, b) => b.estimatedTokens - a.estimatedTokens)
             .slice(0, 20)
             .map(a => ({
-              path: a.path.replace(projectPath + '/', ''),
+              path: a.path.replace(projectPath + sep, ''),
               tokens: a.estimatedTokens,
               size: a.size,
               category: a.category,
@@ -112,7 +112,7 @@ export class CheckCommand {
     if (sorted.length > 0) {
       console.log(chalk.bold('  Largest Files (by token estimate):'));
       console.log('');
-      const maxPathLen = Math.min(50, Math.max(...sorted.map(a => a.path.replace(projectPath + '/', '').length)));
+      const maxPathLen = Math.min(50, Math.max(...sorted.map(a => a.path.replace(projectPath + sep, '').length)));
 
       for (const file of sorted) {
         const relPath = file.path.replace(projectPath + '/', '').substring(0, maxPathLen).padEnd(maxPathLen, ' ');

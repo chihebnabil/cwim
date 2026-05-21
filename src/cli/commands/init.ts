@@ -4,7 +4,7 @@
 
 import chalk from 'chalk';
 import { writeFileSync, existsSync, readFileSync } from 'fs';
-import { join, resolve } from 'path';
+import { join, resolve, basename } from 'path';
 import {
   ClaudeModel,
   ClaudePlan,
@@ -78,7 +78,7 @@ export class InitCommand {
     // Check for existing CLAUDE.md
     const claudeMdPath = join(projectPath, 'CLAUDE.md');
     if (!existsSync(claudeMdPath)) {
-      const projectName = projectPath.split('/').pop() || 'Project';
+      const projectName = basename(projectPath) || 'Project';
       const content = CLAUDE_MD_TEMPLATE.replace('{PROJECT_NAME}', projectName);
       writeFileSync(claudeMdPath, content);
       console.log(`  ${chalk.green('✓')} Created ${chalk.cyan('CLAUDE.md')} (${chalk.yellow('~300 tokens')} when loaded)`);

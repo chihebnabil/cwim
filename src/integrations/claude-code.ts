@@ -216,6 +216,10 @@ export function parseSessionFile(filePath: string): ClaudeCodeSession | null {
     // Check if session is still active (activity within last 30 minutes)
     const isActive = (Date.now() - lastActivityAt.getTime()) < 30 * 60 * 1000;
 
+    // Count MCP servers and memory files
+    const mcpServers = findMCPServers().length;
+    const memoryFiles = findMemoryFiles().length;
+
     return {
       sessionId: sessionId || basename(filePath, '.jsonl'),
       projectName,
@@ -232,6 +236,8 @@ export function parseSessionFile(filePath: string): ClaudeCodeSession | null {
       estimatedUsedTokens,
       windowSize,
       utilizationPercent,
+      mcpServers,
+      memoryFiles,
       lastActivityAt,
       firstActivityAt,
       isActive,
@@ -502,11 +508,15 @@ export function findMemoryFiles(): Array<{ path: string; tokens: number }> {
 
 /**
  * Get window size for a given model
+ * Supports both dash and dot formats: e.g., "sonnet-4-6" and "sonnet-4.6"
  */
 function getWindowSizeForModel(model: string): number {
   if (!model || model === 'unknown') return 200_000;
-  if (model.includes('opus-4.7') || model.includes('sonnet-4.6')) return 1_000_000;
-  if (model.includes('opus-4') || model.includes('sonnet-4.5')) return 500_000;
+  // Normalize model string to handle both "4-6" and "4.6" formats
+  const normalized = model.replace(/-(\d)-(\d)/, '-$1.$2');
+  if (normalized.includes('opus-4.7') || normalized.includes('sonnet-4.6')) return 1_000_000;
+  if (normalized.includes('opus-4.5') || normalized.includes('sonnet-4.5')) return 500_000;
+  if (normalized.includes('opus-4') || normalized.includes('sonnet-4')) return 200_000;
   return 200_000;
 }
 
@@ -551,6 +561,16 @@ function mapCategoryName(name: string): ContextCategory | null {
     'autocompact_buffer': ContextCategory.AUTOCOMPACT_BUFFER,
   };
   return mapping[name] || null;
+}
+
+/**
+ * Re-read a session file to get the latest stats (for live sync)
+ */
+export function reSyncSession(session: ClaudeCodeSession): ClaudeCodeSession | null {
+  if (!session.sessionFilePath || !existsSync(session.sessionFilePath)) {
+    return null;
+  }
+  return parseSessionFile(session.sessionFilePath);
 }
 
 /**

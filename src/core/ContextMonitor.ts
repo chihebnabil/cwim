@@ -72,6 +72,30 @@ export class ContextMonitor extends EventEmitter {
     this.sessionStartTime = new Date();
   }
 
+  /** Initialize monitor state from a parsed Claude Code session */
+  initializeFromSession(session: {
+    model: string;
+    estimatedUsedTokens: number;
+    messageCount: number;
+    fileReads: number;
+    toolCalls: number;
+    windowSize: number;
+    mcpServers?: number;
+    memoryFiles?: number;
+  }): void {
+    this.currentModel = session.model;
+    this.currentUsedTokens = session.estimatedUsedTokens;
+    this.currentMessageCount = session.messageCount;
+    this.currentFileReads = session.fileReads;
+    this.currentToolCalls = session.toolCalls;
+    this.currentMcpServers = session.mcpServers ?? this.currentMcpServers;
+    this.currentMemoryFiles = session.memoryFiles ?? this.currentMemoryFiles;
+    this.config.contextWindowSize = session.windowSize;
+
+    // Rebuild breakdown with actual session data
+    this.rebuildBreakdownEstimate();
+  }
+
   /** Start monitoring */
   start(refreshIntervalMs = 5000): void {
     if (this.isMonitoring) return;

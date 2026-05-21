@@ -300,6 +300,8 @@ export interface ClaudeCodeSession {
   estimatedUsedTokens: number;
   windowSize: number;
   utilizationPercent: number;
+  mcpServers: number;
+  memoryFiles: number;
   lastActivityAt: Date;
   firstActivityAt: Date;
   isActive: boolean;
