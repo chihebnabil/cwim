@@ -1,6 +1,6 @@
 {
   "name": "@cwim/cli",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Real-time context window monitoring system for Claude Code - avoid the silent context ceiling with intelligent alerts and optimization suggestions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

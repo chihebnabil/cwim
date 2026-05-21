@@ -162,186 +162,19 @@ cwim config reset
 
 ## Programmatic API
 
-Use CWIM in your own tools:
+Core classes are exported for advanced integrations (VS Code extensions, custom dashboards, etc.):
 
 ```typescript
 import { ContextMonitor, TokenEstimator } from '@cwim/cli';
-import { homedir } from 'os';
-import { join } from 'path';
 
-// Create a monitor
-const monitor = new ContextMonitor({
-  model: 'claude-sonnet-4-20250514',
-  plan: 'pro',
-  contextWindowSize: 200_000,
-  alertConfig: {
-    thresholds: {
-      warning: 0.50,
-      caution: 0.65,
-      danger: 0.80,
-      critical: 0.90,
-    },
-    predictions: {
-      enabled: true,
-      lookAheadMinutes: 10,
-      sampleWindowMs: 300_000,
-      minSamples: 5,
-    },
-    notifications: {
-      desktop: false,
-      sound: false,
-      cliBadge: true,
-    },
-  },
-  dashboardOptions: {
-    refreshRateMs: 3000,
-    showBreakdown: true,
-    showSuggestions: true,
-    theme: 'dark',
-  },
-  projectRoot: process.cwd(),
-  claudeCodePath: join(homedir(), '.claude'),
-  logLevel: 'info',
-});
-
-// Listen for events
-monitor.on('snapshot', (snapshot) => {
-  console.log(`Context: ${(snapshot.utilizationPercent * 100).toFixed(1)}%`);
-});
-
-monitor.on('alert', (alert) => {
-  console.warn(`Alert: ${alert.message}`);
-  console.log(`Action: ${alert.suggestedAction}`);
-});
-
-monitor.on('suggestion', (suggestion) => {
-  console.log(`Suggestion: ${suggestion.title} - ${suggestion.description}`);
-});
-
-// Initialize from a Claude Code session (optional)
-monitor.initializeFromSession({
-  model: 'claude-sonnet-4-6',
-  estimatedUsedTokens: 45000,
-  messageCount: 12,
-  fileReads: 5,
-  toolCalls: 3,
-  windowSize: 1_000_000,
-});
-
-// Update from /context command output
-monitor.updateFromContextCommand(
-  'claude-sonnet-4-20250514',
-  85_000,
-  200_000,
-  [
-    { category: 'system_prompt', tokens: 2600, percentage: 0.013 },
-    { category: 'system_tools', tokens: 17600, percentage: 0.088 },
-    { category: 'mcp_tools', tokens: 900, percentage: 0.0045 },
-    { category: 'messages', tokens: 64000, percentage: 0.32 },
-    { category: 'free_space', tokens: 115000, percentage: 0.575 },
-  ]
-);
-
-// Start monitoring
-monitor.start(3000);
-
-// Add a message
-monitor.addMessage('Implement user authentication', 'user');
-
-// Add a file read
-monitor.addFileRead('src/auth.ts', '/* 500 lines of auth code */');
-
-// Get latest snapshot
-const snapshot = monitor.getLatestSnapshot();
-console.log(snapshot.degradationRisk);
-
-// Get prediction
-const prediction = monitor.getPrediction();
-console.log(`Critical in ~${prediction.minutesUntilCritical} minutes`);
-
-// Stop monitoring
-monitor.stop();
-```
-
-### Token Estimation
-
-```typescript
-import { TokenEstimator } from '@cwim/cli';
-
-// Quick estimate
+// Quick token estimate
 const tokens = TokenEstimator.quickEstimate('Hello world', 'prose');
 
 // Analyze a file
-const estimator = new TokenEstimator();
-const analysis = estimator.analyzeFile('src/app.ts');
-console.log(`${analysis.path}: ~${analysis.estimatedTokens} tokens`);
-
-// Estimate system components
-const systemPrompt = TokenEstimator.estimateSystemPrompt();     // ~2,600
-const systemTools = TokenEstimator.estimateSystemTools();       // ~17,600
-const mcpServer = TokenEstimator.estimateMCPServer('git', 5);   // ~900
+const analysis = new TokenEstimator().analyzeFile('src/app.ts');
 ```
 
-### Claude Code Integration
-
-```typescript
-import {
-  parseContextOutput,
-  findMCPServers,
-  findMemoryFiles,
-  autoDetectContext,
-  isClaudeCodeInstalled,
-  findRecentSessions,
-  selectSession,
-  reSyncSession,
-} from '@cwim/cli';
-
-// Parse /context command output
-const output = `
-Context Usage
-claude-sonnet-4-20250514 · 51k/200k tokens (26%)
-
-Estimated usage by category
-  System prompt:     2.6k tokens  (1.3%)
-  System tools:     17.6k tokens  (8.8%)
-  MCP tools:          907 tokens  (0.5%)
-  Messages:         30.5k tokens (15.3%)
-  Free space:        114k        (57.0%)
-`;
-
-const parsed = parseContextOutput(output);
-console.log(parsed.model, parsed.usedTokens, parsed.totalWindow);
-
-// Find recent sessions
-const sessions = findRecentSessions(24); // Last 24 hours
-console.log(`${sessions.length} sessions found`);
-
-// Auto-select best session
-const session = selectSession({
-  recentHours: 24,
-  autoSelectIfSingle: true,
-  autoSelectCurrentDir: true,
-  preferRecent: true,
-});
-
-// Re-sync session data (for live updates)
-if (session) {
-  const refreshed = reSyncSession(session);
-  console.log(`Updated tokens: ${refreshed?.estimatedUsedTokens}`);
-}
-
-// Find MCP servers
-const servers = findMCPServers();
-console.log(`${servers.length} MCP servers configured`);
-
-// Find memory files
-const memoryFiles = findMemoryFiles();
-console.log(`${memoryFiles.length} memory files found`);
-
-// Auto-detect context
-const context = autoDetectContext();
-console.log(`Model: ${context.model}, Window: ${context.windowSize}`);
-```
+See `src/index.ts` for all available exports.
 
 ## How It Works
 
