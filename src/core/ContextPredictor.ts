@@ -151,8 +151,11 @@ export class ContextPredictor {
     const rate2 = this.avgRate(secondHalf);
 
     if (rate2 > rate1 * 1.5) return TrendDirection.ACCELERATING;
-    if (rate2 > rate1 * 1.1) return TrendDirection.RISING;
-    if (rate2 < rate1 * 0.9) return TrendDirection.FALLING;
+    if (rate2 > rate1 * 1.2) return TrendDirection.RISING;
+    if (rate2 < rate1 * 0.8) return TrendDirection.FALLING;
+    
+    // If slope is positive and rates are stable, check if there's meaningful growth
+    if (slope > 0 && rate2 > 0 && rate2 > rate1) return TrendDirection.RISING;
     return TrendDirection.STABLE;
   }
 

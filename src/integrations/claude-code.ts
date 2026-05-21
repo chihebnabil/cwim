@@ -4,7 +4,7 @@
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { homedir } from 'os';
 import {
   type ContextSnapshot,
@@ -13,12 +13,24 @@ import {
   DegradationRisk,
   type SnapshotMetadata,
   type ClaudeCodeLogEntry,
+  type ClaudeCodeSession,
+  type SessionSummary,
+  type SessionPickerOptions,
 } from '../types/index.js';
 import { TokenEstimator } from '../core/TokenEstimator.js';
 
 const CLAUDE_DIR = join(homedir(), '.claude');
+const PROJECTS_DIR = join(CLAUDE_DIR, 'projects');
 const LOGS_DIR = join(CLAUDE_DIR, 'logs');
 const SETTINGS_FILE = join(CLAUDE_DIR, 'settings.json');
+
+/** Default session picker options */
+const DEFAULT_PICKER_OPTIONS: SessionPickerOptions = {
+  recentHours: 24,
+  autoSelectIfSingle: true,
+  autoSelectCurrentDir: true,
+  preferRecent: true,
+};
 
 /**
  * Parse /context command output from Claude Code
@@ -65,7 +77,246 @@ export function parseContextOutput(output: string): {
 }
 
 /**
- * Read Claude Code log files
+ * Find all recent Claude Code sessions
+ */
+export function findRecentSessions(recentHours: number = 24): ClaudeCodeSession[] {
+  const sessions: ClaudeCodeSession[] = [];
+  const cutoffTime = new Date(Date.now() - recentHours * 60 * 60 * 1000);
+
+  try {
+    if (!existsSync(PROJECTS_DIR)) return sessions;
+
+    const projectDirs = readdirSync(PROJECTS_DIR, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => join(PROJECTS_DIR, entry.name));
+
+    for (const projectDir of projectDirs) {
+      try {
+        const sessionFiles = readdirSync(projectDir)
+          .filter(f => f.endsWith('.jsonl'))
+          .map(f => join(projectDir, f));
+
+        for (const sessionFile of sessionFiles) {
+          try {
+            const session = parseSessionFile(sessionFile);
+            if (session && session.lastActivityAt >= cutoffTime) {
+              sessions.push(session);
+            }
+          } catch {
+            // Skip invalid session files
+          }
+        }
+      } catch {
+        // Skip unreadable project directories
+      }
+    }
+  } catch {
+    // Silently fail if projects dir can't be read
+  }
+
+  // Sort by most recent activity first
+  return sessions.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
+}
+
+/**
+ * Parse a single session file and extract session information
+ */
+export function parseSessionFile(filePath: string): ClaudeCodeSession | null {
+  try {
+    const stat = statSync(filePath);
+    if (!stat.isFile() || stat.size === 0) return null;
+
+    const content = readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n').filter(Boolean);
+
+    if (lines.length === 0) return null;
+
+    let sessionId = '';
+    let model = '';
+    let projectPath = '';
+    let messageCount = 0;
+    let fileReads = 0;
+    let toolCalls = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCacheReadTokens = 0;
+    let totalCacheCreationTokens = 0;
+    let lastActivityAt = new Date(0);
+    let firstActivityAt = new Date();
+
+    // Extract project name from directory
+    const projectDir = basename(join(filePath, '..'));
+    const projectName = projectDir.replace(/^C--/, '').replace(/--/g, '/');
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
+
+        if (timestamp) {
+          if (timestamp > lastActivityAt) lastActivityAt = timestamp;
+          if (timestamp < firstActivityAt) firstActivityAt = timestamp;
+        }
+
+        // Extract session ID
+        if (entry.sessionId && !sessionId) {
+          sessionId = entry.sessionId;
+        }
+
+        // Extract project path from cwd
+        if (entry.cwd && !projectPath) {
+          projectPath = entry.cwd;
+        }
+
+        // Count messages
+        if (entry.type === 'user' || entry.type === 'assistant') {
+          messageCount++;
+        }
+
+        // Count file reads (file-history-snapshot entries)
+        if (entry.type === 'file-history-snapshot') {
+          fileReads++;
+        }
+
+        // Count tool calls
+        if (entry.type === 'assistant' && entry.message?.content) {
+          const toolUses = entry.message.content.filter((c: any) => c.type === 'tool_use');
+          toolCalls += toolUses.length;
+        }
+
+        // Extract model from assistant messages
+        if (entry.type === 'assistant' && entry.message?.model && !model) {
+          model = entry.message.model;
+        }
+
+        // Extract token usage
+        if (entry.message?.usage) {
+          const usage = entry.message.usage;
+          totalInputTokens += usage.input_tokens || 0;
+          totalOutputTokens += usage.output_tokens || 0;
+          totalCacheReadTokens += usage.cache_read_input_tokens || 0;
+          totalCacheCreationTokens += usage.cache_creation_input_tokens || 0;
+        }
+      } catch {
+        // Skip invalid lines
+      }
+    }
+
+    // Calculate estimated used tokens
+    // Include: input tokens + output tokens + cache creation tokens
+    // Cache read tokens are not "used" from context window (they're retrieved from cache)
+    const estimatedUsedTokens = totalInputTokens + totalOutputTokens + totalCacheCreationTokens;
+
+    // Determine window size from model
+    const windowSize = getWindowSizeForModel(model);
+
+    // Calculate utilization
+    const utilizationPercent = windowSize > 0 ? estimatedUsedTokens / windowSize : 0;
+
+    // Check if session is still active (activity within last 30 minutes)
+    const isActive = (Date.now() - lastActivityAt.getTime()) < 30 * 60 * 1000;
+
+    return {
+      sessionId: sessionId || basename(filePath, '.jsonl'),
+      projectName,
+      projectPath: projectPath || projectName,
+      sessionFilePath: filePath,
+      model: model || 'unknown',
+      messageCount,
+      fileReads,
+      toolCalls,
+      totalInputTokens,
+      totalOutputTokens,
+      totalCacheReadTokens,
+      totalCacheCreationTokens,
+      estimatedUsedTokens,
+      windowSize,
+      utilizationPercent,
+      lastActivityAt,
+      firstActivityAt,
+      isActive,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the current project's session (matching current working directory)
+ */
+export function getCurrentProjectSession(): ClaudeCodeSession | null {
+  const sessions = findRecentSessions(24);
+  const cwd = process.cwd();
+
+  // Find exact match first
+  let match = sessions.find(s => s.projectPath === cwd);
+  if (match) return match;
+
+  // Try partial match (project path contains cwd or vice versa)
+  match = sessions.find(s => 
+    cwd.includes(s.projectPath) || s.projectPath.includes(cwd)
+  );
+  if (match) return match;
+
+  return null;
+}
+
+/**
+ * Get session summaries for picker display
+ */
+export function getSessionSummaries(sessions: ClaudeCodeSession[]): SessionSummary[] {
+  return sessions.map((session, index) => ({
+    index: index + 1,
+    projectName: session.projectName,
+    projectPath: session.projectPath,
+    model: session.model,
+    messageCount: session.messageCount,
+    tokensUsed: session.estimatedUsedTokens,
+    windowSize: session.windowSize,
+    utilizationPercent: session.utilizationPercent,
+    lastActivityAt: session.lastActivityAt,
+    riskLevel: calculateRiskLevel(session.utilizationPercent),
+  }));
+}
+
+/**
+ * Select a session based on options
+ * Returns null if no sessions found or user cancels
+ */
+export function selectSession(
+  options: Partial<SessionPickerOptions> = {}
+): ClaudeCodeSession | null {
+  const opts = { ...DEFAULT_PICKER_OPTIONS, ...options };
+  const sessions = findRecentSessions(opts.recentHours);
+
+  if (sessions.length === 0) {
+    return null;
+  }
+
+  // Auto-select if only one session
+  if (opts.autoSelectIfSingle && sessions.length === 1) {
+    return sessions[0];
+  }
+
+  // If preferRecent is true, prioritize most recent session
+  if (opts.preferRecent) {
+    return sessions[0];
+  }
+
+  // Otherwise, auto-select current directory match
+  if (opts.autoSelectCurrentDir) {
+    const currentSession = getCurrentProjectSession();
+    if (currentSession) {
+      return currentSession;
+    }
+  }
+
+  // Fallback to most recent
+  return sessions[0];
+}
+
+/**
+ * Read Claude Code log files (legacy, kept for backward compatibility)
  */
 export function readLogs(): ClaudeCodeLogEntry[] {
   const entries: ClaudeCodeLogEntry[] = [];
@@ -250,6 +501,27 @@ export function findMemoryFiles(): Array<{ path: string; tokens: number }> {
 }
 
 /**
+ * Get window size for a given model
+ */
+function getWindowSizeForModel(model: string): number {
+  if (!model || model === 'unknown') return 200_000;
+  if (model.includes('opus-4.7') || model.includes('sonnet-4.6')) return 1_000_000;
+  if (model.includes('opus-4') || model.includes('sonnet-4.5')) return 500_000;
+  return 200_000;
+}
+
+/**
+ * Calculate risk level from utilization percentage
+ */
+function calculateRiskLevel(utilization: number): DegradationRisk {
+  if (utilization >= 0.90) return DegradationRisk.CRITICAL;
+  if (utilization >= 0.80) return DegradationRisk.HIGH;
+  if (utilization >= 0.65) return DegradationRisk.MEDIUM;
+  if (utilization >= 0.50) return DegradationRisk.LOW;
+  return DegradationRisk.NONE;
+}
+
+/**
  * Parse token count string (handles k suffix)
  */
 function parseTokenCount(str: string): number {
@@ -290,6 +562,18 @@ export function autoDetectContext(): {
   mcpServers: number;
   memoryFiles: number;
 } {
+  // Try to get from active session first
+  const session = selectSession();
+  if (session) {
+    return {
+      model: session.model,
+      windowSize: session.windowSize,
+      mcpServers: findMCPServers().length,
+      memoryFiles: findMemoryFiles().length,
+    };
+  }
+
+  // Fallback to settings
   const settings = getSettings();
   const model = (settings.model as string) || 'claude-sonnet-4-20250514';
 

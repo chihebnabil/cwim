@@ -161,7 +161,7 @@ export class ContextMonitor extends EventEmitter {
   }
 
   /** Add a message to the conversation */
-  addMessage(text: string, role: 'user' | 'assistant'): void {
+  addMessage(text: string, role: 'user' | 'assistant'): ContextSnapshot {
     const tokens = this.estimator.estimate(text, role === 'assistant' ? 'prose' : 'prose');
     this.currentUsedTokens += tokens;
     this.currentMessageCount++;
@@ -182,10 +182,11 @@ export class ContextMonitor extends EventEmitter {
     }
 
     this.emit('message', { tokens, role, totalMessages: this.currentMessageCount });
+    return this.takeSnapshot();
   }
 
   /** Add a file read to context */
-  addFileRead(filePath: string, content: string): void {
+  addFileRead(filePath: string, content: string): ContextSnapshot {
     const tokens = this.estimator.estimate(content, 'code');
     this.currentUsedTokens += tokens;
     this.currentFileReads++;
@@ -199,6 +200,7 @@ export class ContextMonitor extends EventEmitter {
     }
 
     this.emit('fileRead', { filePath, tokens });
+    return this.takeSnapshot();
   }
 
   /** Add MCP server to context */

@@ -1,164 +1,76 @@
 /**
- * Real-time Dashboard Command
- * Provides a live-updating terminal dashboard for context window monitoring.
+ * Dashboard Command - Real-time context monitoring dashboard
  */
 
 import chalk from 'chalk';
-import { readFileSync, existsSync, watch } from 'fs';
-import { join, resolve } from 'path';
-import { homedir } from 'os';
-import {
-  ContextMonitor,
-} from '../../core/ContextMonitor.js';
-import {
-  ContextPredictor,
-} from '../../core/ContextPredictor.js';
-import {
-  TokenEstimator,
-} from '../../core/TokenEstimator.js';
+import { ContextMonitor } from '../../core/ContextMonitor.js';
+import { TokenEstimator } from '../../core/TokenEstimator.js';
 import {
   DegradationRisk,
-  ContextCategory,
-  ClaudeModel,
-  ClaudePlan,
-  LogLevel,
-  CONTEXT_WINDOW_SIZES,
-  type CWIMConfig,
+  DashboardTheme,
+  type DashboardOptions,
   type ContextSnapshot,
-  type DashboardTheme,
+  type CWIMConfig,
 } from '../../types/index.js';
+import {
+  findRecentSessions,
+  selectSession,
+  isClaudeCodeInstalled,
+  autoDetectContext,
+} from '../../integrations/claude-code.js';
 
-interface DashboardOptions {
+interface DashboardCommandOptions {
   refreshRateMs: number;
   model: string;
   windowSize: number;
   showBreakdown: boolean;
   showSuggestions: boolean;
-  theme: DashboardTheme;
+  theme: string;
 }
 
-// ANSI escape codes
-const CLEAR = '\x1Bc';
-const HIDE_CURSOR = '\x1B[?25l';
-const SHOW_CURSOR = '\x1B[?25h';
-const CLEAR_LINE = '\x1B[2K\r';
-const MOVE_UP = '\x1B[1A';
-
 export class DashboardCommand {
-  private monitor!: ContextMonitor;
-  private running = false;
-  private theme: Record<string, (s: string) => string> = {};
-  private snapshots: ContextSnapshot[] = [];
+  private monitor: ContextMonitor | null = null;
+  private isRunning = false;
+  private refreshInterval: NodeJS.Timeout | null = null;
 
-  async execute(options: DashboardOptions): Promise<void> {
-    // Setup theme
-    this.setupTheme(options.theme);
-
-    // Setup config
-    const config = this.buildConfig(options);
-
-    // Create monitor
-    this.monitor = new ContextMonitor(config);
-
-    // Setup event handlers
-    this.monitor.on('snapshot', (snapshot: ContextSnapshot) => {
-      this.snapshots.push(snapshot);
-      if (this.snapshots.length > 100) this.snapshots.shift();
-    });
-
-    // Start monitoring
-    this.monitor.start(options.refreshRateMs);
-    this.running = true;
-
-    // Hide cursor
-    process.stdout.write(HIDE_CURSOR);
-
-    // Initial render
-    this.render(options);
-
-    // Render loop
-    const renderInterval = setInterval(() => {
-      if (!this.running) {
-        clearInterval(renderInterval);
-        return;
-      }
-      this.render(options);
-    }, options.refreshRateMs);
-
-    // Handle exit
-    process.on('SIGINT', () => {
-      this.shutdown();
-      process.exit(0);
-    });
-
-    process.on('SIGTERM', () => {
-      this.shutdown();
-      process.exit(0);
-    });
-
-    // Keep process alive
-    await new Promise(() => {});
-  }
-
-  private setupTheme(themeName: DashboardTheme): void {
-    switch (themeName) {
-      case 'light':
-        this.theme = {
-          header: chalk.black.bgWhite.bold,
-          subheader: chalk.gray,
-          label: chalk.gray,
-          value: chalk.black,
-          highlight: chalk.blue.bold,
-          success: chalk.green,
-          warning: chalk.yellow,
-          danger: chalk.red,
-          critical: chalk.white.bgRed.bold,
-          border: chalk.gray,
-          muted: chalk.gray,
-          accent: chalk.blue,
-        };
-        break;
-      case 'minimal':
-        this.theme = {
-          header: chalk.bold,
-          subheader: chalk.gray,
-          label: chalk.gray,
-          value: chalk.white,
-          highlight: chalk.white.bold,
-          success: chalk.white,
-          warning: chalk.white,
-          danger: chalk.white,
-          critical: chalk.white.bold,
-          border: chalk.gray,
-          muted: chalk.gray,
-          accent: chalk.white,
-        };
-        break;
-      case 'dark':
-      default:
-        this.theme = {
-          header: chalk.white.bgGray.bold,
-          subheader: chalk.cyan,
-          label: chalk.gray,
-          value: chalk.white,
-          highlight: chalk.cyan.bold,
-          success: chalk.green,
-          warning: chalk.yellow,
-          danger: chalk.red,
-          critical: chalk.white.bgRed.bold,
-          border: chalk.gray,
-          muted: chalk.gray,
-          accent: chalk.cyan,
-        };
-        break;
+  async execute(options: DashboardCommandOptions): Promise<void> {
+    // Check if Claude Code is installed
+    if (!isClaudeCodeInstalled()) {
+      console.log(chalk.yellow('\n  Claude Code is not installed or not initialized.'));
+      console.log(chalk.gray('  Install Claude Code to use CWIM context monitoring.\n'));
+      return;
     }
-  }
 
-  private buildConfig(options: DashboardOptions): CWIMConfig {
-    return {
-      model: options.model as ClaudeModel,
-      plan: ClaudePlan.PRO,
-      contextWindowSize: options.windowSize,
+    // Show progress indicator
+    console.log(chalk.cyan('\n  Scanning for Claude Code sessions...'));
+
+    // Find and auto-select session
+    const session = selectSession({
+      recentHours: 24,
+      autoSelectIfSingle: true,
+      autoSelectCurrentDir: true,
+      preferRecent: true,
+    });
+
+    if (!session) {
+      console.log(chalk.yellow('\n  No active Claude Code sessions found (last 24h).'));
+      console.log(chalk.gray('  Start a Claude Code session to monitor context usage.\n'));
+      return;
+    }
+
+    // Auto-detect context if available
+    const detectedContext = autoDetectContext();
+    const model = detectedContext.model || options.model;
+    const windowSize = detectedContext.windowSize || options.windowSize;
+
+    console.log(chalk.green(`  Found session: ${session.projectName}`));
+    console.log(chalk.gray(`  Model: ${model} | Window: ${TokenEstimator.formatTokens(windowSize)} tokens\n`));
+
+    // Initialize monitor
+    const config: CWIMConfig = {
+      model: model as any,
+      plan: 'pro' as any,
+      contextWindowSize: windowSize,
       alertConfig: {
         thresholds: {
           warning: 0.50,
@@ -169,7 +81,7 @@ export class DashboardCommand {
         predictions: {
           enabled: true,
           lookAheadMinutes: 10,
-          sampleWindowMs: 300000,
+          sampleWindowMs: 300_000,
           minSamples: 5,
         },
         notifications: {
@@ -183,209 +95,241 @@ export class DashboardCommand {
         showBreakdown: options.showBreakdown,
         showSuggestions: options.showSuggestions,
         showPredictions: true,
-        theme: options.theme,
+        theme: options.theme as DashboardTheme,
       },
-      projectRoot: process.cwd(),
-      claudeCodePath: join(homedir(), '.claude'),
-      logLevel: LogLevel.INFO,
+      projectRoot: session.projectPath,
+      claudeCodePath: `${process.env.HOME}/.claude`,
+      logLevel: 'info' as any,
     };
+
+    this.monitor = new ContextMonitor(config);
+
+    // Set up event listeners
+    this.monitor.on('snapshot', (snapshot) => {
+      this.renderDashboard(snapshot, options);
+    });
+
+    this.monitor.on('alert', (alert) => {
+      this.renderAlert(alert);
+    });
+
+    this.monitor.on('suggestion', (suggestion) => {
+      this.renderSuggestion(suggestion);
+    });
+
+    // Start monitoring
+    this.isRunning = true;
+    this.monitor.start(options.refreshRateMs);
+
+    // Initial render
+    const initialSnapshot = this.monitor.getLatestSnapshot();
+    if (initialSnapshot) {
+      this.renderDashboard(initialSnapshot, options);
+    }
+
+    // Set up refresh interval for UI updates
+    this.refreshInterval = setInterval(() => {
+      if (this.monitor && this.isRunning) {
+        const snapshot = this.monitor.getLatestSnapshot();
+        if (snapshot) {
+          this.renderDashboard(snapshot, options);
+        }
+      }
+    }, options.refreshRateMs);
+
+    // Handle graceful shutdown
+    process.on('SIGINT', () => {
+      this.shutdown();
+    });
+
+    process.on('SIGTERM', () => {
+      this.shutdown();
+    });
+
+    // Keep process alive
+    console.log(chalk.gray(`\n  Press Ctrl+C to exit\n`));
+    await new Promise(() => {}); // Keep running indefinitely
   }
 
-  private render(options: DashboardOptions): void {
-    const snapshot = this.monitor.getLatestSnapshot();
-    if (!snapshot) return;
+  private renderDashboard(snapshot: ContextSnapshot, options: DashboardCommandOptions): void {
+    // Clear screen (ANSI escape sequence)
+    process.stdout.write('\x1Bc');
 
-    const t = this.theme;
-    const lines: string[] = [];
+    const t = this.getThemeColors(options.theme);
 
     // Header
-    lines.push('');
-    lines.push(t.header('  CWIM — Context Window Intelligence Manager  '.padEnd(58, ' ')));
-    lines.push('');
+    console.log(chalk.bold.cyan('  Context Window Intelligence Manager - Dashboard'));
+    console.log();
 
-    // Status bar
-    const riskColor = this.getRiskColor(snapshot.degradationRisk);
-    const statusText = ` ${this.getRiskIcon(snapshot.degradationRisk)} ${snapshot.degradationRisk.toUpperCase()} `;
-    lines.push(`  Status: ${riskColor(statusText.padEnd(12, ' '))}  Model: ${t.accent(snapshot.model)}`);
-    lines.push('');
+    // Model info
+    console.log(`  ${t.label('Model:')}         ${t.value(snapshot.model)}`);
+    console.log(`  ${t.label('Window Size:')}   ${t.highlight(TokenEstimator.formatTokens(snapshot.totalWindow))}`);
+    console.log(`  ${t.label('Used:')}          ${t.value(TokenEstimator.formatTokens(snapshot.usedTokens))}`);
+    console.log(`  ${t.label('Free:')}          ${t.success(TokenEstimator.formatTokens(snapshot.freeTokens))}`);
 
-    // Main metrics
-    lines.push(t.subheader('  ─── Context Usage ───'));
-    lines.push('');
-
-    const used = TokenEstimator.formatTokens(snapshot.usedTokens);
-    const total = TokenEstimator.formatTokens(snapshot.totalWindow);
-    const free = TokenEstimator.formatTokens(snapshot.freeTokens);
-    const pct = snapshot.utilizationPercent;
-
-    // Progress bar
+    // Utilization bar
     const barWidth = 40;
-    const filled = Math.floor(pct * barWidth);
-    const barChar = '█';
-    const emptyChar = '░';
-    const bar = riskColor(barChar.repeat(filled)) + t.muted(emptyChar.repeat(barWidth - filled));
+    const filled = Math.floor(snapshot.utilizationPercent * barWidth);
+    const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
+    const barColor = snapshot.utilizationPercent > 0.9 ? t.critical :
+                    snapshot.utilizationPercent > 0.7 ? t.danger :
+                    snapshot.utilizationPercent > 0.5 ? t.warning : t.success;
+    console.log(`  ${t.label('Utilization:')}  ${barColor(bar)} ${barColor(`${(snapshot.utilizationPercent * 100).toFixed(1)}%`)}`);
 
-    lines.push(`  ${t.label('Used:')}  ${t.highlight(used.padStart(8, ' '))} / ${total} ${t.label('tokens')}`);
-    lines.push(`  ${t.label('Free:')}  ${t.success(free.padStart(8, ' '))} ${t.label('tokens')}`);
-    lines.push(`  ${t.label('Util:')}  ${riskColor(`${(pct * 100).toFixed(1)}%`.padStart(8, ' '))}`);
-    lines.push(`  ${bar}`);
-    lines.push('');
+    // Risk level
+    const riskColor = snapshot.degradationRisk === DegradationRisk.CRITICAL ? t.critical :
+                     snapshot.degradationRisk === DegradationRisk.HIGH ? t.danger :
+                     snapshot.degradationRisk === DegradationRisk.MEDIUM ? t.warning :
+                     snapshot.degradationRisk === DegradationRisk.LOW ? t.muted : t.success;
+    console.log(`  ${t.label('Risk:')}          ${riskColor(snapshot.degradationRisk.toUpperCase())}`);
 
-    // Compact buffer indicator
-    const buffer = TokenEstimator.formatTokens(snapshot.autocompactBuffer);
-    lines.push(`  ${t.label('Autocompact Buffer:')} ${t.warning(buffer.padStart(8, ' '))} ${t.label('tokens (reserved)')}`);
-    lines.push('');
-
-    // Session info
-    lines.push(t.subheader('  ─── Session ───'));
-    lines.push('');
-
-    const duration = this.formatDuration(snapshot.metadata.sessionDurationMs);
-    const rate = this.monitor.getConsumptionRate();
-
-    lines.push(`  ${t.label('Duration:')}     ${t.value(duration)}`);
-    lines.push(`  ${t.label('Messages:')}     ${t.value(String(snapshot.metadata.messageCount))}`);
-    lines.push(`  ${t.label('File Reads:')}   ${t.value(String(snapshot.metadata.fileReads))}`);
-    lines.push(`  ${t.label('Tool Calls:')}    ${t.value(String(snapshot.metadata.toolCalls))}`);
-    lines.push(`  ${t.label('MCP Servers:')}  ${t.value(String(snapshot.metadata.mcpServers))}`);
-    lines.push(`  ${t.label('Memory Files:')} ${t.value(String(snapshot.metadata.memoryFiles))}`);
-    lines.push('');
-    lines.push(`  ${t.label('Rate:')}         ${t.accent(`${Math.round(rate.tokensPerMinute)} tokens/min`)}`);
-    lines.push(`  ${t.label('Trend:')}        ${this.getTrendDisplay(rate.trend)}`);
-
-    // Est. turns remaining
+    // Estimated turns remaining
     if (snapshot.estimatedTurnsRemaining !== null) {
       const turnsColor = snapshot.estimatedTurnsRemaining < 5 ? t.danger :
-                        snapshot.estimatedTurnsRemaining < 15 ? t.warning : t.success;
-      lines.push(`  ${t.label('Est. Turns:')}   ${turnsColor(`~${snapshot.estimatedTurnsRemaining} remaining`)}`);
+                        snapshot.estimatedTurnsRemaining < 10 ? t.warning : t.success;
+      console.log(`  ${t.label('Est. Turns:')}   ${turnsColor(`${snapshot.estimatedTurnsRemaining} remaining`)}`);
     }
-    lines.push('');
+    console.log();
 
-    // Prediction
-    if (this.monitor.getConfig().alertConfig.predictions.enabled) {
-      const prediction = this.monitor.getPrediction();
-      if (prediction.minutesUntilCritical && prediction.confidence > 0.3) {
-        lines.push(t.subheader('  ─── Prediction ───'));
-        lines.push('');
-        const predColor = prediction.minutesUntilCritical < 5 ? t.critical :
-                         prediction.minutesUntilCritical < 15 ? t.danger : t.warning;
-        lines.push(`  ${t.label('Critical in:')}  ${predColor(`~${prediction.minutesUntilCritical} minutes`)} ${t.muted(`(confidence: ${(prediction.confidence * 100).toFixed(0)}%)`)}`);
-        lines.push('');
-      }
-    }
+    // Session details
+    console.log(t.label('  --- Session Details ---'));
+    console.log(`  ${t.label('Messages:')}      ${t.value(String(snapshot.metadata.messageCount))}`);
+    console.log(`  ${t.label('File Reads:')}    ${t.value(String(snapshot.metadata.fileReads))}`);
+    console.log(`  ${t.label('Tool Calls:')}    ${t.value(String(snapshot.metadata.toolCalls))}`);
+    console.log(`  ${t.label('MCP Servers:')}   ${t.value(String(snapshot.metadata.mcpServers))}`);
+    console.log(`  ${t.label('Memory Files:')}  ${t.value(String(snapshot.metadata.memoryFiles))}`);
+    console.log();
 
     // Breakdown
     if (options.showBreakdown && snapshot.breakdown.length > 0) {
-      lines.push(t.subheader('  ─── Breakdown ───'));
-      lines.push('');
-
-      const maxLabelLen = Math.max(...snapshot.breakdown.map(b => this.formatCategory(b.category).length));
-
+      console.log(t.label('  --- Context Breakdown ---'));
+      const maxCatLen = Math.max(...snapshot.breakdown.map(b => b.category.length));
       for (const item of snapshot.breakdown) {
-        const label = this.formatCategory(item.category).padEnd(maxLabelLen, ' ');
+        const label = item.category.padEnd(maxCatLen, ' ');
         const tokens = TokenEstimator.formatTokens(item.tokens).padStart(8, ' ');
-        const percentage = `${(item.percentage * 100).toFixed(1)}%`.padStart(6, ' ');
-        const miniBar = this.renderMiniBar(item.percentage, 15);
-        lines.push(`  ${t.label(label)} ${tokens} ${t.muted(percentage)} ${miniBar}`);
+        const pct = `${(item.percentage * 100).toFixed(1)}%`.padStart(6, ' ');
+        console.log(`  ${t.muted(label)} ${tokens} tokens ${pct}`);
       }
-      lines.push('');
+      console.log();
+    }
+
+    // Consumption rate
+    if (this.monitor) {
+      const rate = this.monitor.getConsumptionRate();
+      console.log(t.label('  --- Consumption Rate ---'));
+      console.log(`  ${t.label('Rate:')}          ${t.value(`${rate.tokensPerMinute.toFixed(1)} tokens/min`)}`);
+      console.log(`  ${t.label('Per Message:')}   ${t.value(`${rate.tokensPerMessage.toFixed(0)} tokens/msg`)}`);
+      console.log(`  ${t.label('Trend:')}         ${t.value(rate.trend)}`);
+      console.log();
+    }
+
+    // Predictions
+    if (options.showSuggestions && this.monitor) {
+      const prediction = this.monitor.getPrediction();
+      if (prediction.minutesUntilCritical !== null) {
+        console.log(t.label('  --- Predictions ---'));
+        const predColor = prediction.minutesUntilCritical < 10 ? t.danger :
+                         prediction.minutesUntilCritical < 30 ? t.warning : t.success;
+        console.log(`  ${t.label('Critical in:')}   ${predColor(`~${Math.ceil(prediction.minutesUntilCritical)} minutes`)}`);
+        if (prediction.minutesUntilFull !== null) {
+          console.log(`  ${t.label('Full in:')}       ${predColor(`~${Math.ceil(prediction.minutesUntilFull)} minutes`)}`);
+        }
+        console.log(`  ${t.label('Confidence:')}   ${t.value(`${(prediction.confidence * 100).toFixed(0)}%`)}`);
+        console.log();
+      }
     }
 
     // Suggestions
-    if (options.showSuggestions) {
-      const suggestions = this.monitor.getSuggestions().slice(-5);
+    if (options.showSuggestions && this.monitor) {
+      const suggestions = this.monitor.getSuggestions().slice(-3);
       if (suggestions.length > 0) {
-        lines.push(t.subheader('  ─── Suggestions ───'));
-        lines.push('');
-
-        for (const s of suggestions) {
-          const priorityColor = s.priority === 'critical' ? t.critical :
-                               s.priority === 'high' ? t.danger :
-                               s.priority === 'medium' ? t.warning : t.muted;
-          lines.push(`  ${priorityColor(`[${s.priority.toUpperCase()}]`)} ${s.title}`);
-          lines.push(`  ${t.muted(s.description.substring(0, 56))}`);
-          if (s.command) {
-            lines.push(`  ${t.accent(`→ ${s.command}`)}`);
+        console.log(t.label('  --- Suggestions ---'));
+        for (const suggestion of suggestions) {
+          const priorityColor = suggestion.priority === 'critical' ? t.critical :
+                               suggestion.priority === 'high' ? t.danger :
+                               suggestion.priority === 'medium' ? t.warning : t.muted;
+          console.log(`  ${priorityColor(`[${suggestion.priority.toUpperCase()}]`)} ${suggestion.title}`);
+          console.log(`    ${t.muted(suggestion.description)}`);
+          if (suggestion.command) {
+            console.log(`    ${t.highlight(`> ${suggestion.command}`)}`);
           }
-          lines.push('');
+          console.log();
         }
       }
     }
 
     // Footer
-    lines.push(t.border('  ─'.padEnd(58, '─')));
-    lines.push(`  ${t.muted('Press Ctrl+C to exit')}  ${t.muted(`| Refresh: ${options.refreshRateMs}ms`)}`);
-    lines.push('');
-
-    // Clear and render
-    process.stdout.write(CLEAR);
-    process.stdout.write(lines.join('\n'));
+    console.log(t.muted(`  Last updated: ${new Date().toLocaleTimeString()}`));
+    console.log(t.muted(`  Refresh: ${options.refreshRateMs}ms | Press Ctrl+C to exit`));
+    console.log();
   }
 
-  private renderMiniBar(percent: number, width: number): string {
-    const filled = Math.max(0, Math.min(width, Math.floor(percent * width)));
-    const empty = width - filled;
-    const bar = '█'.repeat(filled) + '░'.repeat(empty);
-
-    if (percent > 0.9) return this.theme.danger(bar);
-    if (percent > 0.7) return this.theme.warning(bar);
-    if (percent > 0.5) return this.theme.accent(bar);
-    return this.theme.muted(bar);
+  private renderAlert(alert: any): void {
+    const color = alert.level === DegradationRisk.CRITICAL ? chalk.white.bgRed.bold :
+                 alert.level === DegradationRisk.HIGH ? chalk.red :
+                 alert.level === DegradationRisk.MEDIUM ? chalk.yellow : chalk.cyan;
+    console.log(color(`\n  ALERT: ${alert.message}`));
+    console.log(chalk.gray(`  Action: ${alert.suggestedAction}\n`));
   }
 
-  private getRiskColor(risk: DegradationRisk) {
-    switch (risk) {
-      case DegradationRisk.CRITICAL: return this.theme.critical;
-      case DegradationRisk.HIGH: return this.theme.danger;
-      case DegradationRisk.MEDIUM: return this.theme.warning;
-      case DegradationRisk.LOW: return this.theme.accent;
-      default: return this.theme.success;
+  private renderSuggestion(suggestion: any): void {
+    console.log(chalk.cyan(`\n  Suggestion: ${suggestion.title}`));
+    console.log(chalk.gray(`  ${suggestion.description}`));
+    if (suggestion.command) {
+      console.log(chalk.yellow(`  > ${suggestion.command}`));
     }
+    console.log();
   }
 
-  private getRiskIcon(risk: DegradationRisk): string {
-    switch (risk) {
-      case DegradationRisk.CRITICAL: return '✗';
-      case DegradationRisk.HIGH: return '!';
-      case DegradationRisk.MEDIUM: return '◆';
-      case DegradationRisk.LOW: return '●';
-      default: return '✓';
+  private getThemeColors(theme: string) {
+    switch (theme) {
+      case 'light':
+        return {
+          label: chalk.gray,
+          value: chalk.black,
+          highlight: chalk.blue.bold,
+          success: chalk.green,
+          warning: chalk.yellow,
+          danger: chalk.red,
+          critical: chalk.white.bgRed.bold,
+          muted: chalk.gray,
+        };
+      case 'minimal':
+        return {
+          label: (s: string) => s,
+          value: (s: string) => s,
+          highlight: (s: string) => s,
+          success: (s: string) => s,
+          warning: (s: string) => s,
+          danger: (s: string) => s,
+          critical: (s: string) => s,
+          muted: (s: string) => s,
+        };
+      default: // dark
+        return {
+          label: chalk.gray,
+          value: chalk.white,
+          highlight: chalk.cyan.bold,
+          success: chalk.green,
+          warning: chalk.yellow,
+          danger: chalk.red,
+          critical: chalk.white.bgRed.bold,
+          muted: chalk.gray,
+        };
     }
-  }
-
-  private getTrendDisplay(trend: string): string {
-    switch (trend) {
-      case 'accelerating': return this.theme.danger('▲▲ Accelerating');
-      case 'rising': return this.theme.warning('▲ Rising');
-      case 'falling': return this.theme.success('▼ Falling');
-      default: return this.theme.muted('● Stable');
-    }
-  }
-
-  private formatCategory(category: ContextCategory): string {
-    return category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  }
-
-  private formatDuration(ms: number): string {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-    return `${seconds}s`;
   }
 
   private shutdown(): void {
-    this.running = false;
-    this.monitor.stop();
-    process.stdout.write(SHOW_CURSOR);
-    console.log(chalk.gray('\n\n  CWIM stopped.\n'));
-  }
-}
-
-// Type augmentation for ContextMonitor
-declare module '../../core/ContextMonitor.js' {
-  interface ContextMonitor {
-    getConfig(): CWIMConfig;
+    this.isRunning = false;
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
+    if (this.monitor) {
+      this.monitor.stop();
+      this.monitor = null;
+    }
+    console.log(chalk.yellow('\n  Dashboard stopped.\n'));
+    process.exit(0);
   }
 }

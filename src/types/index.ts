@@ -283,6 +283,50 @@ export enum HealthStatus {
   CRITICAL = 'critical',
 }
 
+/** Claude Code session information */
+export interface ClaudeCodeSession {
+  sessionId: string;
+  projectName: string;
+  projectPath: string;
+  sessionFilePath: string;
+  model: string;
+  messageCount: number;
+  fileReads: number;
+  toolCalls: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+  estimatedUsedTokens: number;
+  windowSize: number;
+  utilizationPercent: number;
+  lastActivityAt: Date;
+  firstActivityAt: Date;
+  isActive: boolean;
+}
+
+/** Session summary for picker display */
+export interface SessionSummary {
+  index: number;
+  projectName: string;
+  projectPath: string;
+  model: string;
+  messageCount: number;
+  tokensUsed: number;
+  windowSize: number;
+  utilizationPercent: number;
+  lastActivityAt: Date;
+  riskLevel: DegradationRisk;
+}
+
+/** Session picker options */
+export interface SessionPickerOptions {
+  recentHours: number;
+  autoSelectIfSingle: boolean;
+  autoSelectCurrentDir: boolean;
+  preferRecent: boolean;
+}
+
 /** Historical consumption data point */
 export interface ConsumptionDataPoint {
   timestamp: Date;

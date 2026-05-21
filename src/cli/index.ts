@@ -68,7 +68,7 @@ program
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     const cmd = new StatusCommand();
-    await cmd.execute({ json: options.json });
+    await cmd.execute({ json: options.json, recentHours: 24 });
   });
 
 // Config command - manage configuration
