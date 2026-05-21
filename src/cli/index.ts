@@ -114,16 +114,12 @@ program
 // Init command - initialize in project
 program
   .command('init')
-  .description('Initialize CWIM in current project')
+  .description('Initialize CWIM in current project (creates smart CLAUDE.md)')
   .option('-p, --project <path>', 'Project root path', process.cwd())
-  .option('--plan <plan>', 'Claude plan tier: free, pro, max5, max20, enterprise', 'pro')
-  .option('--model <model>', 'Default Claude model', 'claude-sonnet-4-20250514')
   .action(async (options) => {
     const cmd = new InitCommand();
     await cmd.execute({
       projectPath: options.project,
-      plan: options.plan,
-      model: options.model,
     });
   });
 

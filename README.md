@@ -110,19 +110,30 @@ cwim status --json
 
 ### `cwim init` — Initialize Project
 
-Set up CWIM configuration in your project:
+Generate a smart `CLAUDE.md` tailored to your project type:
 
 ```bash
-# Initialize with defaults
+# Initialize in current directory
 cwim init
 
-# With specific plan and model
-cwim init --plan max5 --model claude-opus-4-20250514
+# Initialize specific project
+cwim init --project ~/my-project
 ```
 
+**Auto-detects project type from files:**
+| Detected Files | Type | Template Includes |
+|---------------|------|-------------------|
+| `package.json` | Node.js | React/Vue/Next.js/Nuxt detection, npm/pnpm/yarn/bun, entry point |
+| `requirements.txt` / `pyproject.toml` | Python | Django/Flask/FastAPI, Poetry/Pipenv/uv, pytest |
+| `Cargo.toml` | Rust | Main/lib detection, cargo commands |
+| `go.mod` | Go | Module path, cmd pattern |
+| `Gemfile` | Ruby | Rails/Sinatra, RSpec/Minitest |
+| `composer.json` | PHP | Laravel/Symfony, artisan |
+| `pom.xml` / `build.gradle` | Java | Maven/Gradle, Spring Boot |
+| `*.csproj` / `*.sln` | .NET | dotnet CLI commands |
+
 Creates:
-- `CLAUDE.md` — Project context file for Claude Code
-- `.cwim.json` — Project-specific CWIM configuration
+- `CLAUDE.md` — Smart project context file for Claude Code (auto-filled with detected stack)
 
 ### `cwim estimate` — Token Estimation
 
@@ -385,8 +396,7 @@ Each MCP server adds ~800-1200 tokens. Each memory file (CLAUDE.md) adds its con
 CWIM reads configuration from:
 
 1. `~/.config/cwim/config.json` — Global user config
-2. `.cwim.json` — Project-specific config (in current directory)
-3. CLI flags — Highest priority
+2. CLI flags — Highest priority
 
 ### Default Config
 
