@@ -4,7 +4,8 @@
 
 import chalk from 'chalk';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, basename } from 'path';
+import { createInterface } from 'readline';
 import { ContextMonitor } from '../../core/ContextMonitor.js';
 import { TokenEstimator } from '../../core/TokenEstimator.js';
 import {
@@ -21,6 +22,7 @@ import {
   isClaudeCodeInstalled,
   autoDetectContext,
   reSyncSession,
+  getSessionSummaries,
 } from '../../integrations/claude-code.js';
 
 interface DashboardCommandOptions {
@@ -38,8 +40,14 @@ export class DashboardCommand {
   private refreshInterval: NodeJS.Timeout | null = null;
   private sessionSyncInterval: NodeJS.Timeout | null = null;
   private activeSession: ClaudeCodeSession | null = null;
+  private allSessions: ClaudeCodeSession[] = [];
+  private sessionStartTime: Date = new Date();
+  private options: DashboardCommandOptions | null = null;
+  private rl: ReturnType<typeof createInterface> | null = null;
 
   async execute(options: DashboardCommandOptions): Promise<void> {
+    this.options = options;
+
     // Check if Claude Code is installed
     if (!isClaudeCodeInstalled()) {
       console.log(chalk.yellow('\n  Claude Code is not installed or not initialized.'));
@@ -47,40 +55,113 @@ export class DashboardCommand {
       return;
     }
 
-    // Show progress indicator
+    // Find all recent sessions
     console.log(chalk.cyan('\n  Scanning for Claude Code sessions...'));
+    this.allSessions = findRecentSessions(24);
 
-    // Find and auto-select session
-    const session = selectSession({
-      recentHours: 24,
-      autoSelectIfSingle: true,
-      autoSelectCurrentDir: true,
-      preferRecent: true,
+    let session: ClaudeCodeSession | null = null;
+
+    if (this.allSessions.length === 0) {
+      // Fallback mode: run with manual defaults
+      console.log(chalk.yellow('\n  No active Claude Code sessions found (last 24h).'));
+      console.log(chalk.gray('  Running in fallback mode with manual defaults.\n'));
+      await this.startWithSession(null, options);
+      return;
+    }
+
+    // If multiple sessions, let user pick
+    if (this.allSessions.length > 1) {
+      session = await this.promptSessionSelection(this.allSessions);
+    } else {
+      // Single session - auto-select but show clearly
+      session = this.allSessions[0];
+      console.log(chalk.green(`\n  Auto-selected session: ${session.projectName}`));
+      console.log(chalk.gray(`  Path: ${session.projectPath}`));
+      console.log(chalk.gray(`  Model: ${session.model} | Messages: ${session.messageCount}`));
+      console.log();
+    }
+
+    if (!session) {
+      console.log(chalk.yellow('\n  No session selected. Exiting.\n'));
+      return;
+    }
+
+    await this.startWithSession(session, options);
+  }
+
+  /**
+   * Prompt user to select a session when multiple are found
+   */
+  private async promptSessionSelection(sessions: ClaudeCodeSession[]): Promise<ClaudeCodeSession | null> {
+    console.log(chalk.cyan(`\n  Found ${sessions.length} active sessions:\n`));
+
+    const summaries = getSessionSummaries(sessions);
+
+    for (const summary of summaries) {
+      const riskIcon = this.getRiskIcon(summary.riskLevel);
+      const riskColor = this.getRiskColor(summary.riskLevel);
+      const activeIndicator = sessions[summary.index - 1].isActive
+        ? chalk.green('●')
+        : chalk.gray('○');
+
+      console.log(`  ${chalk.cyan(`[${summary.index}]`)} ${activeIndicator} ${chalk.bold.white(summary.projectName)}`);
+      console.log(`      ${chalk.gray(summary.projectPath)}`);
+      console.log(`      ${chalk.gray('Model:')} ${summary.model} ${chalk.gray('|')} ${summary.messageCount} msgs ${chalk.gray('|')} ${TokenEstimator.formatTokens(summary.tokensUsed)}/${TokenEstimator.formatTokens(summary.windowSize)} ${riskColor(`${riskIcon} ${(summary.utilizationPercent * 100).toFixed(1)}%`)}`);
+      console.log(`      ${chalk.gray('Last activity:')} ${this.formatTimeAgo(summary.lastActivityAt)}`);
+      console.log();
+    }
+
+    // Auto-select most recent after 5 seconds if no input
+    console.log(chalk.gray('  Press a number to select, or wait 5s for auto-select [1]...'));
+
+    return new Promise((resolve) => {
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const timer = setTimeout(() => {
+        rl.close();
+        console.log(chalk.gray('  Auto-selecting [1]...\n'));
+        resolve(sessions[0]);
+      }, 5000);
+
+      rl.question('', (answer) => {
+        clearTimeout(timer);
+        rl.close();
+
+        const choice = parseInt(answer.trim(), 10);
+        if (isNaN(choice) || choice < 1 || choice > sessions.length) {
+          console.log(chalk.gray('  Invalid choice. Auto-selecting [1]...\n'));
+          resolve(sessions[0]);
+        } else {
+          console.log(chalk.green(`  Selected: ${sessions[choice - 1].projectName}\n`));
+          resolve(sessions[choice - 1]);
+        }
+      });
     });
+  }
 
+  /**
+   * Start monitoring with the selected session
+   */
+  private async startWithSession(session: ClaudeCodeSession | null, options: DashboardCommandOptions): Promise<void> {
     let model: string;
     let windowSize: number;
     let projectPath: string;
 
-    if (!session) {
-      // Fallback mode: run with manual defaults
-      console.log(chalk.yellow('\n  No active Claude Code sessions found (last 24h).'));
-      console.log(chalk.gray('  Running in fallback mode with manual defaults.\n'));
-
-      const detectedContext = autoDetectContext();
-      model = detectedContext.model || options.model;
-      windowSize = detectedContext.windowSize || options.windowSize;
-      projectPath = process.cwd();
-    } else {
+    if (session) {
       this.activeSession = session;
-      // Auto-detect context if available
+      this.sessionStartTime = session.firstActivityAt;
       const detectedContext = autoDetectContext();
       model = detectedContext.model || options.model;
       windowSize = detectedContext.windowSize || options.windowSize;
       projectPath = session.projectPath;
-
-      console.log(chalk.green(`  Found session: ${session.projectName}`));
-      console.log(chalk.gray(`  Model: ${model} | Window: ${TokenEstimator.formatTokens(windowSize)} tokens\n`));
+    } else {
+      const detectedContext = autoDetectContext();
+      model = detectedContext.model || options.model;
+      windowSize = detectedContext.windowSize || options.windowSize;
+      projectPath = process.cwd();
     }
 
     // Initialize monitor
@@ -173,6 +254,9 @@ export class DashboardCommand {
       }
     }, options.refreshRateMs);
 
+    // Set up keyboard shortcuts
+    this.setupKeyboardShortcuts();
+
     // Handle graceful shutdown
     process.on('SIGINT', () => {
       this.shutdown();
@@ -183,8 +267,72 @@ export class DashboardCommand {
     });
 
     // Keep process alive
-    console.log(chalk.gray(`\n  Press Ctrl+C to exit\n`));
-    await new Promise(() => {}); // Keep running indefinitely
+    await new Promise(() => {});
+  }
+
+  /** Set up keyboard shortcuts */
+  private setupKeyboardShortcuts(): void {
+    if (!process.stdin.isTTY) return;
+
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding('utf8');
+
+    process.stdin.on('data', (key: string) => {
+      if (key === '\u0003') { // Ctrl+C
+        this.shutdown();
+        return;
+      }
+
+      switch (key.toLowerCase()) {
+        case 'q':
+          this.shutdown();
+          break;
+        case 'r':
+          if (this.monitor) {
+            this.syncSessionData();
+            const snapshot = this.monitor.getLatestSnapshot();
+            if (snapshot && this.options) {
+              this.renderDashboard(snapshot, this.options);
+            }
+          }
+          break;
+        case 's':
+          this.switchSession();
+          break;
+      }
+    });
+  }
+
+  /** Switch to a different session */
+  private async switchSession(): Promise<void> {
+    if (this.allSessions.length <= 1) {
+      console.log(chalk.yellow('\n  No other sessions available.\n'));
+      return;
+    }
+
+    // Stop current monitoring
+    if (this.monitor) {
+      this.monitor.stop();
+    }
+    if (this.sessionSyncInterval) {
+      clearInterval(this.sessionSyncInterval);
+      this.sessionSyncInterval = null;
+    }
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
+
+    console.log(chalk.cyan('\n  Switching session...\n'));
+
+    // Get fresh sessions
+    this.allSessions = findRecentSessions(24);
+    const session = await this.promptSessionSelection(this.allSessions);
+
+    if (session && this.options) {
+      await this.startWithSession(session, this.options);
+    }
   }
 
   /** Re-sync session data from Claude Code files */
@@ -219,9 +367,27 @@ export class DashboardCommand {
 
     const t = this.getThemeColors(options.theme);
 
-    // Header
-    console.log(chalk.bold.cyan('  Context Window Intelligence Manager - Dashboard'));
+    // Header with session info
+    console.log(chalk.bold.cyan('  Context Window Intelligence Manager'));
     console.log();
+
+    // Session identification block
+    if (this.activeSession) {
+      const isLive = this.activeSession.isActive;
+      const liveIndicator = isLive
+        ? chalk.green.bold('● LIVE')
+        : chalk.gray('○ inactive');
+      const shortId = this.activeSession.sessionId.slice(0, 8);
+
+      console.log(`  ${t.label('Project:')}       ${chalk.bold.white(this.activeSession.projectName)} ${liveIndicator}`);
+      console.log(`  ${t.label('Path:')}          ${t.muted(this.activeSession.projectPath)}`);
+      console.log(`  ${t.label('Session:')}       ${t.muted(shortId)} ${t.muted(`(${this.formatDuration(Date.now() - this.sessionStartTime.getTime())})`)}`);
+      console.log(`  ${t.label('Last Activity:')} ${t.muted(this.formatTimeAgo(this.activeSession.lastActivityAt))}`);
+      console.log();
+    } else {
+      console.log(`  ${t.label('Mode:')}          ${chalk.yellow('Fallback (no session detected)')}`);
+      console.log();
+    }
 
     // Model info
     console.log(`  ${t.label('Model:')}         ${t.value(snapshot.model)}`);
@@ -320,9 +486,24 @@ export class DashboardCommand {
       }
     }
 
+    // Other active sessions
+    const otherSessions = this.allSessions.filter(
+      s => this.activeSession && s.sessionId !== this.activeSession.sessionId && s.isActive
+    );
+
+    if (otherSessions.length > 0) {
+      console.log(t.label('  --- Other Active Sessions ---'));
+      for (const s of otherSessions.slice(0, 3)) {
+        const riskIcon = this.getRiskIcon(this.calculateRiskLevel(s.utilizationPercent));
+        const riskColor = this.getRiskColor(this.calculateRiskLevel(s.utilizationPercent));
+        console.log(`  ${chalk.green('●')} ${chalk.white(s.projectName)} ${chalk.gray(`(${this.formatTimeAgo(s.lastActivityAt)})`)} ${riskColor(`${riskIcon} ${(s.utilizationPercent * 100).toFixed(0)}%`)}`);
+      }
+      console.log();
+    }
+
     // Footer
     console.log(t.muted(`  Last updated: ${new Date().toLocaleTimeString()}`));
-    console.log(t.muted(`  Refresh: ${options.refreshRateMs}ms | Press Ctrl+C to exit`));
+    console.log(t.muted(`  Refresh: ${options.refreshRateMs}ms | [s]witch | [r]efresh | [q]uit`));
     console.log();
   }
 
@@ -381,8 +562,68 @@ export class DashboardCommand {
     }
   }
 
+  private getRiskIcon(risk: DegradationRisk): string {
+    switch (risk) {
+      case DegradationRisk.CRITICAL: return '✗';
+      case DegradationRisk.HIGH: return '!';
+      case DegradationRisk.MEDIUM: return '◆';
+      case DegradationRisk.LOW: return '●';
+      default: return '✓';
+    }
+  }
+
+  private getRiskColor(risk: DegradationRisk) {
+    switch (risk) {
+      case DegradationRisk.CRITICAL: return chalk.white.bgRed.bold;
+      case DegradationRisk.HIGH: return chalk.red;
+      case DegradationRisk.MEDIUM: return chalk.yellow;
+      case DegradationRisk.LOW: return chalk.gray;
+      default: return chalk.green;
+    }
+  }
+
+  private calculateRiskLevel(utilization: number): DegradationRisk {
+    if (utilization >= 0.90) return DegradationRisk.CRITICAL;
+    if (utilization >= 0.80) return DegradationRisk.HIGH;
+    if (utilization >= 0.65) return DegradationRisk.MEDIUM;
+    if (utilization >= 0.50) return DegradationRisk.LOW;
+    return DegradationRisk.NONE;
+  }
+
+  private formatDuration(ms: number): string {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}d ${hours % 24}h`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m`;
+    return `${seconds}s`;
+  }
+
+  private formatTimeAgo(date: Date): string {
+    const ms = Date.now() - date.getTime();
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    if (minutes > 0) return `${minutes}m ago`;
+    if (seconds > 10) return `${seconds}s ago`;
+    return 'just now';
+  }
+
   private shutdown(): void {
     this.isRunning = false;
+
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    }
+
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
