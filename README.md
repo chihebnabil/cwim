@@ -20,6 +20,7 @@ CWIM gives you:
 - **Smart suggestions** — Actionable tips like `/compact`, `/clear`, or subagent delegation
 - **File analysis** — Know which files cost the most tokens before loading them
 - **Health checks** — Audit your project's context efficiency
+- **Claude Code skill** — Makes Claude self-aware of its own context usage
 - **Cross-platform** — Works on Windows, macOS, and Linux
 
 ## Quick Start
@@ -136,6 +137,35 @@ cwim init --project ~/my-project
 
 Creates:
 - `CLAUDE.md` — Smart project context file for Claude Code (auto-filled with detected stack)
+
+### `cwim skill` — Claude Code Skill
+
+Install a context-awareness skill that makes Claude monitor its own context window:
+
+```bash
+# Install skill in current project
+# Creates .claude/skills/context-awareness/SKILL.md
+cwim skill install
+
+# Check if skill is installed
+cwim skill status
+
+# View skill content
+cwim skill show
+
+# Remove skill
+cwim skill uninstall
+```
+
+**What the skill does:**
+- Makes Claude check context before complex multi-step tasks
+- Suggests `/compact` proactively when utilization hits 60%+
+- Recommends targeted file reads (line ranges) instead of full files
+- Proposes subagent delegation when context is tight
+- Warns about reading large files when context is already high
+
+**How it works:**
+The skill is a Claude Code instruction file that teaches Claude to run `cwim status --json` before expensive operations and adjust its behavior based on current context usage.
 
 ### `cwim estimate` — Token Estimation
 
