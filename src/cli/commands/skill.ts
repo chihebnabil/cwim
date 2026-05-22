@@ -7,8 +7,9 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { join, resolve, basename } from 'path';
 import { homedir } from 'os';
 
-const SKILL_FILE_NAME = 'context-awareness.md';
+const SKILL_FILE_NAME = 'SKILL.md';
 const SKILL_DIR = '.claude/skills';
+const SKILL_SUBDIR = 'context-awareness';
 
 const SKILL_TEMPLATE = `---
 name: Context Window Awareness
@@ -143,7 +144,7 @@ interface SkillOptions {
 export class SkillCommand {
   async install(options: SkillOptions): Promise<void> {
     const projectPath = resolve(options.projectPath);
-    const targetDir = join(projectPath, SKILL_DIR);
+    const targetDir = join(projectPath, SKILL_DIR, SKILL_SUBDIR);
     const targetFile = join(targetDir, SKILL_FILE_NAME);
 
     console.log('');
@@ -151,15 +152,25 @@ export class SkillCommand {
     console.log(`  ${chalk.gray(projectPath)}`);
     console.log('');
 
-    // Create .claude/skills directory
+    // Clean up old flat file structure if exists
+    const oldFile = join(projectPath, SKILL_DIR, 'context-awareness.md');
+    if (existsSync(oldFile)) {
+      try {
+        unlinkSync(oldFile);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    // Create .claude/skills/context-awareness directory
     try {
       const fs = await import('fs');
       if (!existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
-        console.log(`  ${chalk.green('✓')} Created ${chalk.cyan(SKILL_DIR)}`);
+        console.log(`  ${chalk.green('✓')} Created ${chalk.cyan(join(SKILL_DIR, SKILL_SUBDIR))}`);
       }
     } catch {
-      console.log(chalk.red(`  ✗ Could not create ${SKILL_DIR}`));
+      console.log(chalk.red(`  ✗ Could not create ${join(SKILL_DIR, SKILL_SUBDIR)}`));
       console.log('');
       return;
     }
@@ -209,38 +220,42 @@ export class SkillCommand {
 
   async uninstall(options: SkillOptions): Promise<void> {
     const projectPath = resolve(options.projectPath);
-    const targetFile = join(projectPath, SKILL_DIR, SKILL_FILE_NAME);
+    const targetDir = join(projectPath, SKILL_DIR, SKILL_SUBDIR);
+    const targetFile = join(targetDir, SKILL_FILE_NAME);
 
     console.log('');
     console.log(chalk.bold.cyan('  CWIM Skill Uninstallation'));
     console.log('');
 
     if (!existsSync(targetFile)) {
-      console.log(chalk.yellow(`  Skill not found at ${targetFile}`));
+      console.log(chalk.yellow(`  Skill not found at ${targetDir}`));
       console.log('');
       return;
     }
 
     try {
-      unlinkSync(targetFile);
-      console.log(`  ${chalk.green('✓')} Removed ${chalk.cyan(SKILL_FILE_NAME)}`);
+      const fs = await import('fs');
+      // Remove the entire skill directory
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      console.log(`  ${chalk.green('✓')} Removed ${chalk.cyan(SKILL_SUBDIR)} skill`);
       console.log('');
     } catch {
-      console.log(chalk.red(`  ✗ Could not remove ${targetFile}`));
+      console.log(chalk.red(`  ✗ Could not remove ${targetDir}`));
       console.log('');
     }
   }
 
   async show(options: SkillOptions): Promise<void> {
     const projectPath = resolve(options.projectPath);
-    const targetFile = join(projectPath, SKILL_DIR, SKILL_FILE_NAME);
+    const targetDir = join(projectPath, SKILL_DIR, SKILL_SUBDIR);
+    const targetFile = join(targetDir, SKILL_FILE_NAME);
 
     console.log('');
     console.log(chalk.bold.cyan('  CWIM Skill Status'));
     console.log('');
 
     if (existsSync(targetFile)) {
-      console.log(`  ${chalk.green('●')} Skill installed: ${chalk.cyan(targetFile)}`);
+      console.log(`  ${chalk.green('●')} Skill installed: ${chalk.cyan(targetDir)}`);
       console.log('');
 
       // Show preview
@@ -262,8 +277,9 @@ export class SkillCommand {
 
   async status(options: SkillOptions): Promise<void> {
     const projectPath = resolve(options.projectPath);
-    const targetFile = join(projectPath, SKILL_DIR, SKILL_FILE_NAME);
-    const globalSkillFile = join(homedir(), SKILL_DIR, SKILL_FILE_NAME);
+    const targetDir = join(projectPath, SKILL_DIR, SKILL_SUBDIR);
+    const targetFile = join(targetDir, SKILL_FILE_NAME);
+    const globalSkillFile = join(homedir(), SKILL_DIR, SKILL_SUBDIR, SKILL_FILE_NAME);
 
     console.log('');
     console.log(chalk.bold.cyan('  CWIM Skill Status'));
