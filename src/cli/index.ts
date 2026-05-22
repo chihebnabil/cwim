@@ -13,6 +13,7 @@ import { DashboardCommand } from './commands/dashboard.js';
 import { CheckCommand } from './commands/check.js';
 import { ConfigCommand } from './commands/config.js';
 import { InitCommand } from './commands/init.js';
+import { SkillCommand } from './commands/skill.js';
 import { StatusCommand } from './commands/status.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -123,6 +124,55 @@ program
       projectPath: options.project,
     });
   });
+
+// Skill command - manage Claude Code skill
+program
+  .command('skill')
+  .description('Manage CWIM Claude Code skill')
+  .addCommand(
+    new Command('install')
+      .description('Install context awareness skill for Claude Code')
+      .option('-p, --project <path>', 'Project root path', process.cwd())
+      .action(async (options) => {
+        const cmd = new SkillCommand();
+        await cmd.install({
+          projectPath: options.project,
+        });
+      })
+  )
+  .addCommand(
+    new Command('uninstall')
+      .description('Remove context awareness skill')
+      .option('-p, --project <path>', 'Project root path', process.cwd())
+      .action(async (options) => {
+        const cmd = new SkillCommand();
+        await cmd.uninstall({
+          projectPath: options.project,
+        });
+      })
+  )
+  .addCommand(
+    new Command('show')
+      .description('Show installed skill content')
+      .option('-p, --project <path>', 'Project root path', process.cwd())
+      .action(async (options) => {
+        const cmd = new SkillCommand();
+        await cmd.show({
+          projectPath: options.project,
+        });
+      })
+  )
+  .addCommand(
+    new Command('status')
+      .description('Check skill installation status')
+      .option('-p, --project <path>', 'Project root path', process.cwd())
+      .action(async (options) => {
+        const cmd = new SkillCommand();
+        await cmd.status({
+          projectPath: options.project,
+        });
+      })
+  );
 
 // Estimate command - estimate file tokens
 program
